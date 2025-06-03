@@ -1,60 +1,52 @@
 import gradio as gr
-import requests
 import pandas as pd
-from datetime import datetime, timedelta
-from io import StringIO
+import requests
+from io import StringIO, BytesIO
 
-# Hardcoded URLs from notebook
-PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
-KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
+# Hardcoded URLs from your notebook
+PSX_STOCK_DATA_URL = "https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv"
+KMI_SYMBOLS_FILE_URL = "https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB"
 
-def debug_print(msg):
-    print(msg)
-
-def get_symbols_data():
-    try:
-        psx_response = requests.get(PSX_STOCK_DATA_URL)
-        psx_response.raise_for_status()
-        psx_df = pd.read_csv(StringIO(psx_response.text))
-
-        kmi_response = requests.get(KMI_SYMBOLS_FILE)
-        kmi_response.raise_for_status()
-        kmi_df = pd.read_csv(StringIO(kmi_response.text))
-
-        kmi_symbols = []
-        if 'Symbol' in kmi_df.columns:
-            kmi_symbols = kmi_df['Symbol'].str.strip().str.upper().tolist()
-
-        symbols_data = {}
-        for _, row in psx_df.iterrows():
-            symbol = row['Symbol'].strip().upper()
-            symbols_data[symbol] = {
-                'Company': row['Company Name'],
-                'Sector': row['Sector'],
-                'KMI': 'Yes' if symbol in kmi_symbols else 'No'
-            }
-
-        return symbols_data
-    except Exception as e:
-        return {"error": str(e)}
-
-def display_sector_data():
-    data = get_symbols_data()
-    if "error" in data:
-        return f"❌ Error fetching data: {data['error']}"
+def fetch_and_process_data():
+    # Fetch PSX stock data
+    psx_data = requests.get(PSX_STOCK_DATA_URL)
+    psx_df = pd.read_csv(StringIO(psx_data.text))
     
-    df = pd.DataFrame.from_dict(data, orient='index').reset_index()
-    df.rename(columns={'index': 'Symbol'}, inplace=True)
-    return df
+    # Fetch KMI symbols
+    kmi_data = requests.get(KMI_SYMBOLS_FILE_URL)
+    kmi_df = pd.read_csv(StringIO(kmi_data.text))
+    kmi_symbols = kmi_df["Symbol"].str.strip().str.upper().tolist()
 
-with gr.Blocks(title="PSX KMI Compliance & Sector Lookup") as demo:
-    gr.Markdown("# 📈 PSX Sector + KMI Compliance Scanner")
-    gr.Markdown("Click below to fetch and display the latest PSX symbol data.")
+    # Standardize Symbol format
+    psx_df["Symbol"] = psx_df["Symbol"].str.strip().str.upper()
+
+    # Add KMI inclusion column
+    psx_df["KMI"] = psx_df["Symbol"].apply(lambda x: "Yes" if x in kmi_symbols else "No")
+
+    return psx_df
+
+def scan_and_export():
+    df = fetch_and_process_data()
+
+    # Prepare Excel for download
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name="PSX_Scanner", index=False)
+    output.seek(0)
+
+    return df, ("psx_breakup_scanner_output.xlsx", output)
+
+# Gradio app interface
+with gr.Blocks(title="PSX Breakup Scanner") as demo:
+    gr.Markdown("## 📈 PSX Breakup Scanner with KMI Filtering")
+    gr.Markdown("Click the button below to scan the PSX and download results.")
 
     with gr.Row():
-        display_btn = gr.Button("Fetch PSX Data")
-        output_df = gr.Dataframe(headers=["Symbol", "Company", "Sector", "KMI"])
+        scan_btn = gr.Button("🔍 Run Scanner")
+    
+    data_output = gr.Dataframe(label="Scanned Results", interactive=False)
+    file_output = gr.File(label="Download Excel")
 
-    display_btn.click(fn=display_sector_data, outputs=output_df)
+    scan_btn.click(fn=scan_and_export, outputs=[data_output, file_output])
 
-demo.launch(share=True)
+demo.launch()
