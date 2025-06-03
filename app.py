@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import gradio as gr
 from pytz import timezone
-from io import StringIO  # Added missing import
+from io import StringIO
 
 # Configuration
 PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
@@ -15,37 +15,30 @@ MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
 MAX_DAYS_BACK = 5
 
 def debug_print(message, important=False):
-    """Only print important messages unless debugging is needed"""
     if important:
         print(f"🇵🇰 {message}")
 
 def get_symbols_data():
-    """Load symbol data from both PSX stock data and KMI compliance files"""
     try:
-        # Load PSX Stock Data
         debug_print("Fetching symbol data...", important=True)
         psx_response = requests.get(PSX_STOCK_DATA_URL)
         psx_response.raise_for_status()
         psx_df = pd.read_csv(StringIO(psx_response.text))
 
-        # Verify required columns
         psx_required = ['Symbol', 'Company Name', 'Sector']
         for col in psx_required:
             if col not in psx_df.columns:
                 raise ValueError(f"Missing column: {col}")
 
-        # Load KMI compliance data
         debug_print("Fetching KMI compliance data...", important=True)
         kmi_response = requests.get(KMI_SYMBOLS_FILE)
         kmi_response.raise_for_status()
         kmi_df = pd.read_csv(StringIO(kmi_response.text))
 
-        # Create list of KMI compliant symbols
         kmi_symbols = []
         if 'Symbol' in kmi_df.columns:
             kmi_symbols = kmi_df['Symbol'].str.strip().str.upper().tolist()
 
-        # Merge data into comprehensive dictionary
         symbols_data = {}
         for _, row in psx_df.iterrows():
             symbol = row['Symbol'].strip().upper()
@@ -62,10 +55,35 @@ def get_symbols_data():
         debug_print(f"❌ Error loading symbols data: {e}", important=True)
         return {}
 
-# [Rest of your existing functions remain exactly the same...]
+def run_analysis():
+    debug_print("Running dummy analysis...", important=True)
+
+    data = {
+        "Symbol": ["ABC", "XYZ"],
+        "Company": ["ABC Corp", "XYZ Ltd"],
+        "Sector": ["Tech", "Energy"],
+        "KMI": ["Yes", "No"],
+        "Volume": [12000, 30000],
+        "LDCP": [100.0, 200.0],
+        "Open": [98.0, 202.0],
+        "Close": [102.0, 199.0],
+        "High": [103.0, 203.0],
+        "Low": [97.0, 198.0],
+        "Prev Day High": [101.0, 201.0],
+        "Prev Day Low": [95.0, 196.0],
+        "Weekly High": [104.0, 204.0],
+        "Weekly Low": [94.0, 194.0],
+        "Monthly High": [105.0, 205.0],
+        "Monthly Low": [93.0, 193.0],
+        "Daily Status": ["Breakout", "Inside Range"],
+        "Weekly Status": ["Approaching High", "Inside Range"],
+        "Monthly Status": ["Breakout", "Approaching Low"]
+    }
+    df = pd.DataFrame(data)
+    title = "Breakout Analysis for Dummy Data"
+    return df, title
 
 def create_gradio_interface():
-    """Create and launch the Gradio interface"""
     with gr.Blocks(title="PSX Breakout Scanner") as demo:
         gr.Markdown("# 🇵🇰 PSX Breakout Scanner")
         gr.Markdown("This app scans the Pakistan Stock Exchange (PSX) for stocks breaking out of their recent ranges.")
@@ -84,38 +102,38 @@ def create_gradio_interface():
                 'Prev Day High', 'Prev Day Low', 'Weekly High', 'Weekly Low',
                 'Monthly High', 'Monthly Low', 'Daily Status', 'Weekly Status', 'Monthly Status'
             ],
-            datatype=["str", "str", "str", "str", "str",
+            datatype=["str", "str", "str", "str", "number",
                      "number", "number", "number", "number", "number",
                      "number", "number", "number", "number",
                      "number", "number", "str", "str", "str"],
-            wrap=True
         )
         
         def run_analysis_and_display():
             status = "Running analysis... Please wait"
             yield {status_output: status, title_output: "", results_output: None}
             
-            df, title = run_analysis()
-            if df is not None:
+            try:
+                df, title = run_analysis()
                 yield {
                     status_output: "Analysis completed successfully!",
                     title_output: title,
                     results_output: df
                 }
-            else:
+            except Exception as e:
+                debug_print(f"❌ Analysis failed: {e}", important=True)
                 yield {
-                    status_output: "Error: Could not complete analysis (see logs)",
+                    status_output: f"Error: {e}",
                     title_output: "",
                     results_output: None
                 }
-        
+
         def clear_outputs():
             return {
                 status_output: "",
                 title_output: "",
                 results_output: None
             }
-        
+
         run_btn.click(
             fn=run_analysis_and_display,
             outputs=[status_output, title_output, results_output],
@@ -126,7 +144,7 @@ def create_gradio_interface():
             fn=clear_outputs,
             outputs=[status_output, title_output, results_output]
         )
-    
+
     return demo
 
 if __name__ == "__main__":
