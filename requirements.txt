@@ -1,5 +1,6 @@
-pandas
-requests
-gradio
-plotly
-
+gradio>=3.0
+pandas>=1.0
+requests>=2.0
+beautifulsoup4>=4.0
+openpyxl>=3.0
+pytz>=2020.0
