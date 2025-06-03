@@ -1,52 +1,42 @@
-import gradio as gr
 import pandas as pd
 import requests
-from io import StringIO, BytesIO
+import gradio as gr
+import plotly.express as px
+from io import StringIO
 
-# Hardcoded URLs from your notebook
-PSX_STOCK_DATA_URL = "https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv"
-KMI_SYMBOLS_FILE_URL = "https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB"
+PSX_CSV_URL = "https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv"
+KMI_CSV_URL = "https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB"
 
-def fetch_and_process_data():
-    # Fetch PSX stock data
-    psx_data = requests.get(PSX_STOCK_DATA_URL)
-    psx_df = pd.read_csv(StringIO(psx_data.text))
-    
-    # Fetch KMI symbols
-    kmi_data = requests.get(KMI_SYMBOLS_FILE_URL)
-    kmi_df = pd.read_csv(StringIO(kmi_data.text))
-    kmi_symbols = kmi_df["Symbol"].str.strip().str.upper().tolist()
+def fetch_csv(url):
+    response = requests.get(url)
+    return pd.read_csv(StringIO(response.text))
 
-    # Standardize Symbol format
-    psx_df["Symbol"] = psx_df["Symbol"].str.strip().str.upper()
+def process_data():
+    df = fetch_csv(PSX_CSV_URL)
+    kmi_df = fetch_csv(KMI_CSV_URL)
 
-    # Add KMI inclusion column
-    psx_df["KMI"] = psx_df["Symbol"].apply(lambda x: "Yes" if x in kmi_symbols else "No")
+    df["Symbol"] = df["Symbol"].str.strip().str.upper()
+    kmi_df["Symbol"] = kmi_df["Symbol"].str.strip().str.upper()
+    df["KMI"] = df["Symbol"].apply(lambda x: "Yes" if x in kmi_df["Symbol"].values else "No")
 
-    return psx_df
+    df["Total Income"] = df["Revenue"] + df["Other Income"]
+    df["Haram Income"] = df["Interest"] + df["Other Haram Income"]
+    df["Haram %"] = (df["Haram Income"] / df["Total Income"]) * 100
 
-def scan_and_export():
-    df = fetch_and_process_data()
+    filtered_df = df[df["KMI"] == "Yes"].copy()
+    filtered_df = filtered_df.sort_values(by="Haram %", ascending=False)
 
-    # Prepare Excel for download
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, sheet_name="PSX_Scanner", index=False)
-    output.seek(0)
+    fig = px.bar(filtered_df, x="Symbol", y="Haram %", title="Haram Income % of KMI Stocks")
+    html_table = filtered_df[["Symbol", "Name", "Revenue", "Interest", "Other Haram Income", "Total Income", "Haram Income", "Haram %"]].to_html(index=False, classes="table table-striped")
 
-    return df, ("psx_breakup_scanner_output.xlsx", output)
+    return html_table, fig
 
-# Gradio app interface
-with gr.Blocks(title="PSX Breakup Scanner") as demo:
-    gr.Markdown("## 📈 PSX Breakup Scanner with KMI Filtering")
-    gr.Markdown("Click the button below to scan the PSX and download results.")
+demo = gr.Interface(
+    fn=process_data,
+    inputs=[],
+    outputs=[gr.HTML(label="Detailed Halal-Haram Analysis"), gr.Plot(label="Haram Income % Chart")],
+    title="PSX Halal-Haram Breakup Scanner (KMI Stocks)"
+)
 
-    with gr.Row():
-        scan_btn = gr.Button("🔍 Run Scanner")
-    
-    data_output = gr.Dataframe(label="Scanned Results", interactive=False)
-    file_output = gr.File(label="Download Excel")
-
-    scan_btn.click(fn=scan_and_export, outputs=[data_output, file_output])
-
-demo.launch()
+if __name__ == "__main__":
+    demo.launch()
