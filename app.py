@@ -88,8 +88,7 @@ def create_gradio_interface():
                      "number", "number", "number", "number", "number",
                      "number", "number", "number", "number",
                      "number", "number", "str", "str", "str"],
-            wrap=True,
-            max_rows=50
+            wrap=True
         )
         
         def run_analysis_and_display():
