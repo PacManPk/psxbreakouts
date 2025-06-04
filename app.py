@@ -1,29 +1,18 @@
 import requests
 import pandas as pd
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.chart import PieChart, Reference
-from openpyxl.chart.label import DataLabelList
+from openpyxl.styles import Font, Alignment
 from openpyxl import Workbook
 from io import StringIO
 from pytz import timezone
 from openpyxl.utils.dataframe import dataframe_to_rows  # Import this function
 
-# Configuration - modified for Hugging Face compatibility
-PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
-EXCEL_FILE = '/tmp/PSX_Breakout_Scanner.xlsx'  # Using /tmp for Hugging Face
+# Configuration
 PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
-KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
-MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
-               '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
-MAX_DAYS_BACK = 5
-
-# Remove Colab-specific imports and code
-# Add error handling for Hugging Face environment
+EXCEL_FILE = '/tmp/PSX_Breakout_Scanner.xlsx'  # Using /tmp for Hugging Face
+MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN', '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 
 def debug_print(message, important=False):
     """Print messages with timestamp"""
@@ -34,7 +23,7 @@ def debug_print(message, important=False):
 def save_to_excel(df, report_date):
     """Modified for Hugging Face compatibility"""
     try:
-        # Create directory if needed - using /tmp
+        # Ensure directory exists
         os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
 
         # Create new workbook if file doesn't exist
@@ -61,7 +50,7 @@ def save_to_excel(df, report_date):
 
         workbook.save(EXCEL_FILE)
         debug_print(f"✅ Report saved: {EXCEL_FILE}", important=True)
-        
+
         # Return the file path for Hugging Face to display
         return EXCEL_FILE
 
@@ -75,7 +64,15 @@ def download_stock_data():
         response = requests.get(PSX_STOCK_DATA_URL)
         if response.status_code == 200:
             df = pd.read_csv(StringIO(response.text))
-            debug_print("✅ Stock data downloaded successfully", important=True)
+
+            # Debug print the first few rows of the DataFrame
+            debug_print(f"✅ Stock data downloaded successfully: {df.head()}", important=True)
+
+            # Check if the required column 'Symbol' exists in the DataFrame
+            if 'Symbol' not in df.columns:
+                debug_print("❌ 'Symbol' column not found in the stock data", important=True)
+                return None
+
             return df
         else:
             debug_print("❌ Failed to download stock data", important=True)
@@ -87,7 +84,11 @@ def download_stock_data():
 def process_data(df):
     """Process the stock data for analysis"""
     # Here, you should add your own logic to process the stock data
-    # Below is just a simple example of adding some dummy columns
+    if df is None or df.empty:
+        debug_print("❌ DataFrame is empty or invalid.", important=True)
+        return None
+    
+    # Sample logic: Adding Date and Analysis columns
     df['Date'] = datetime.now().strftime('%Y-%m-%d')
     df['Analysis'] = df['Symbol'].apply(lambda x: 'Buy' if x.startswith('K') else 'Sell')  # Dummy analysis logic
     return df
@@ -105,6 +106,10 @@ def main():
         
         # Step 2: Process data
         result_df = process_data(stock_df)
+        
+        if result_df is None:
+            debug_print("❌ Processed data is empty or invalid", important=True)
+            return
         
         # Step 3: Save the processed data to Excel
         today_date = datetime.now().strftime('%Y-%m-%d')
