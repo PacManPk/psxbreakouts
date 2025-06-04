@@ -11,6 +11,7 @@ from openpyxl.chart.label import DataLabelList
 from openpyxl import Workbook
 from io import StringIO
 from pytz import timezone
+from openpyxl.utils.dataframe import dataframe_to_rows  # Import this function
 
 # Configuration - modified for Hugging Face compatibility
 PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
