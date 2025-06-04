@@ -21,7 +21,7 @@ def debug_print(message, important=False):
         print(f"[{timestamp}] 🇵🇰 {message}")
 
 def save_to_excel(df, report_date):
-    """Modified for Hugging Face compatibility"""
+    """Save DataFrame to Excel"""
     try:
         # Ensure directory exists
         os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
@@ -39,7 +39,7 @@ def save_to_excel(df, report_date):
                 worksheet = workbook.active
                 worksheet.title = 'Breakout Analysis'
 
-        # Write data to Excel (simple example for writing data)
+        # Write data to Excel
         for row in dataframe_to_rows(df, index=False, header=True):
             worksheet.append(row)
 
@@ -73,6 +73,9 @@ def download_stock_data():
                 debug_print("❌ 'Symbol' column not found in the stock data", important=True)
                 return None
 
+            # Debug print column names to confirm the structure
+            debug_print(f"✅ Columns in stock data: {df.columns}", important=True)
+
             return df
         else:
             debug_print("❌ Failed to download stock data", important=True)
@@ -83,7 +86,6 @@ def download_stock_data():
 
 def process_data(df):
     """Process the stock data for analysis"""
-    # Here, you should add your own logic to process the stock data
     if df is None or df.empty:
         debug_print("❌ DataFrame is empty or invalid.", important=True)
         return None
@@ -119,6 +121,14 @@ def main():
             debug_print(f"Analysis complete. File available at: {result_file}", important=True)
         else:
             debug_print("Analysis completed but file could not be saved", important=True)
+            
+        # Additional Debugging: Check if the saved Excel file is valid
+        try:
+            wb = load_workbook(EXCEL_FILE)
+            sheet = wb.active
+            debug_print(f"✅ Loaded Excel file: {sheet.title}", important=True)
+        except Exception as e:
+            debug_print(f"❌ Error loading the saved Excel file: {e}", important=True)
             
     except Exception as e:
         debug_print(f"❌ Fatal error: {str(e)}", important=True)
