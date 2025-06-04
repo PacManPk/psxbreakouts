@@ -1,16 +1,27 @@
 import requests
 import pandas as pd
-from datetime import datetime
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 import os
-from openpyxl import load_workbook, Workbook
-from openpyxl.styles import Font, Alignment
-from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.chart import PieChart, Reference
+from openpyxl.chart.label import DataLabelList
+from openpyxl import Workbook
+from io import StringIO
 from pytz import timezone
+from openpyxl.utils.dataframe import dataframe_to_rows  # Import this function
 
-# Configuration
+# Configuration - modified for Hugging Face compatibility
+PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
+EXCEL_FILE = '/tmp/PSX_Breakout_Scanner.xlsx'  # Using /tmp for Hugging Face
 PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
-EXCEL_FILE = '/tmp/PSX_Breakout_Scanner.xlsx'  # Temporary directory for Hugging Face
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
+MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
+               '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
+MAX_DAYS_BACK = 5
+
 
 def debug_print(message, important=False):
     """Print messages with timestamp"""
