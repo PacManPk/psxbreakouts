@@ -173,6 +173,28 @@ with gr.Blocks(title="Pakistan Stock Exchange Analysis", theme=gr.themes.Soft())
         outputs=[losers_output]
     )
 
-# Launch the app
+# Install required packages if not found
+def install_required_packages():
+    import sys
+    import subprocess
+    import importlib
+
+    required_packages = {
+        'websockets': 'websockets',
+        'yfinance': 'yfinance',
+        'mplfinance': 'mplfinance',
+        'dateutil': 'python-dateutil',
+        'gradio': 'gradio'
+    }
+
+    for package_name, install_name in required_packages.items():
+        try:
+            importlib.import_module(package_name)
+        except ImportError:
+            print(f"Installing missing package: {install_name}")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", install_name])
+
+# Check and install packages before launching
 if __name__ == "__main__":
+    install_required_packages()
     demo.launch()
