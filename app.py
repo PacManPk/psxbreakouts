@@ -528,5 +528,134 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         ]
     )
 
+# [Previous imports and all core functions remain exactly the same...]
+# Only modifying the Gradio interface section at the end
+
+# === Enhanced Gradio Interface ===
+def style_dataframe(df):
+    """Apply conditional styling to match Excel colors"""
+    status_cols = ['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS']
+    styled_df = df.copy()
+    
+    # Define color mapping
+    color_map = {
+        "▲▲": "#008000",  # Green
+        "▼▼": "#FF0000",  # Red
+        "–": "#D9D9D9"    # Gray
+    }
+    
+    # Apply styling to status columns
+    for col in status_cols:
+        if col in styled_df.columns:
+            styled_df[col] = styled_df[col].apply(
+                lambda x: f"background-color: {next((v for k, v in color_map.items() if k in str(x)), 'transparent')};"
+            )
+    
+    return styled_df.style
+
+with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
+    # Header section
+    gr.Markdown("""
+    <div style='text-align: center'>
+        <h1 style='color: #1F4E78'>📈 PSX Breakout Scanner</h1>
+        <p>Identifies breakout/breakdown signals in Pakistan Stock Exchange</p>
+    </div>
+    """)
+    
+    # Control section
+    with gr.Row():
+        run_btn = gr.Button("Run Analysis", variant="primary", size="lg")
+        download = gr.File(label="Download Excel Report", visible=False)
+    
+    # Main preview section - now takes full width
+    with gr.Tab("Data Preview"):
+        dataframe = gr.Dataframe(
+            wrap=True,
+            height=600,
+            interactive=False,
+            datatype=["str", "str", "str", "str", "str", 
+                     "number", "number", "number", "number", "number",
+                     "number", "number", "number", "number",
+                     "number", "number", "str", "str", "str"],
+            column_widths=[100, 200, 150, 80, 100, 80, 80, 80, 80, 80, 
+                          80, 80, 80, 80, 80, 80, 120, 120, 120]
+        )
+    
+    # Analysis tabs
+    with gr.Tab("Breakout Analysis"):
+        with gr.Tabs():
+            with gr.Tab("Daily"):
+                with gr.Row():
+                    daily_plot = gr.Plot()
+                    daily_table = gr.Dataframe(
+                        headers=["Status", "Count"],
+                        interactive=False,
+                        datatype=["str", "number"],
+                        row_count=3,
+                        col_count=2
+                    )
+            
+            with gr.Tab("Weekly"):
+                with gr.Row():
+                    weekly_plot = gr.Plot()
+                    weekly_table = gr.Dataframe(
+                        headers=["Status", "Count"],
+                        interactive=False,
+                        datatype=["str", "number"],
+                        row_count=3,
+                        col_count=2
+                    )
+            
+            with gr.Tab("Monthly"):
+                with gr.Row():
+                    monthly_plot = gr.Plot()
+                    monthly_table = gr.Dataframe(
+                        headers=["Status", "Count"],
+                        interactive=False,
+                        datatype=["str", "number"],
+                        row_count=3,
+                        col_count=2
+                    )
+    
+    # Custom CSS for better appearance
+    app.css = """
+    .gradio-container {
+        max-width: 1200px !important;
+    }
+    .dataframe table {
+        width: 100% !important;
+    }
+    .dataframe th {
+        background-color: #4F81BD !important;
+        color: white !important;
+        font-weight: bold !important;
+    }
+    .dataframe td {
+        padding: 8px !important;
+    }
+    """
+
+    def run_analysis_wrapper():
+        """Wrapper to handle the styled dataframe output"""
+        results = run_analysis()
+        if results[1] is not None:
+            styled_df = style_dataframe(results[1])
+            return (results[0], styled_df) + results[2:]
+        return results
+    
+    run_btn.click(
+        fn=run_analysis_wrapper,
+        outputs=[
+            download,
+            dataframe,
+            daily_plot,
+            weekly_plot,
+            monthly_plot,
+            daily_table,
+            weekly_table,
+            monthly_table
+        ]
+    )
+
 if __name__ == "__main__":
     app.launch()
