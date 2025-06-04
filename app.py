@@ -22,6 +22,8 @@ MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
                '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
 
+# Remove Colab-specific imports and code
+# Add error handling for Hugging Face environment
 
 def debug_print(message, important=False):
     """Print messages with timestamp"""
@@ -30,24 +32,29 @@ def debug_print(message, important=False):
         print(f"[{timestamp}] 🇵🇰 {message}")
 
 def save_to_excel(df, report_date):
-    """Save processed data to Excel"""
+    """Modified for Hugging Face compatibility"""
     try:
+        # Create directory if needed - using /tmp
         os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
 
-        # Create a new workbook if the file doesn't exist
+        # Create new workbook if file doesn't exist
         if not os.path.exists(EXCEL_FILE):
             workbook = Workbook()
             worksheet = workbook.active
             worksheet.title = 'Breakout Analysis'
         else:
             workbook = load_workbook(EXCEL_FILE)
-            worksheet = workbook.active if 'Breakout Analysis' not in workbook.sheetnames else workbook['Breakout Analysis']
+            if 'Breakout Analysis' in workbook.sheetnames:
+                worksheet = workbook['Breakout Analysis']
+            else:
+                worksheet = workbook.active
+                worksheet.title = 'Breakout Analysis'
 
-        # Append dataframe to worksheet
+        # Write data to Excel (simple example for writing data)
         for row in dataframe_to_rows(df, index=False, header=True):
             worksheet.append(row)
 
-        # Style the header
+        # Apply basic styling to the header row
         for cell in worksheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal='center')
@@ -55,31 +62,34 @@ def save_to_excel(df, report_date):
         workbook.save(EXCEL_FILE)
         debug_print(f"✅ Report saved: {EXCEL_FILE}", important=True)
         
-        return EXCEL_FILE  # Return file path
+        # Return the file path for Hugging Face to display
+        return EXCEL_FILE
 
     except Exception as e:
         debug_print(f"❌ Error saving Excel file: {e}", important=True)
         return None
 
 def download_stock_data():
-    """Download stock data"""
+    """Download stock data from PSX or Google Sheets"""
     try:
         response = requests.get(PSX_STOCK_DATA_URL)
         if response.status_code == 200:
-            df = pd.read_csv(pd.compat.StringIO(response.text))
+            df = pd.read_csv(StringIO(response.text))
             debug_print("✅ Stock data downloaded successfully", important=True)
             return df
         else:
-            debug_print(f"❌ Failed to download stock data (HTTP {response.status_code})", important=True)
+            debug_print("❌ Failed to download stock data", important=True)
             return None
     except Exception as e:
         debug_print(f"❌ Error downloading stock data: {e}", important=True)
         return None
 
 def process_data(df):
-    """Process stock data"""
+    """Process the stock data for analysis"""
+    # Here, you should add your own logic to process the stock data
+    # Below is just a simple example of adding some dummy columns
     df['Date'] = datetime.now().strftime('%Y-%m-%d')
-    df['Analysis'] = df['Symbol'].apply(lambda x: 'Buy' if x.startswith('K') else 'Sell')
+    df['Analysis'] = df['Symbol'].apply(lambda x: 'Buy' if x.startswith('K') else 'Sell')  # Dummy analysis logic
     return df
 
 def main():
@@ -88,6 +98,7 @@ def main():
     try:
         # Step 1: Download stock data
         stock_df = download_stock_data()
+        
         if stock_df is None:
             debug_print("❌ No stock data available", important=True)
             return
@@ -95,17 +106,18 @@ def main():
         # Step 2: Process data
         result_df = process_data(stock_df)
         
-        # Step 3: Save to Excel
+        # Step 3: Save the processed data to Excel
         today_date = datetime.now().strftime('%Y-%m-%d')
         result_file = save_to_excel(result_df, today_date)
         
         if result_file:
-            debug_print(f"✅ Analysis complete. File available at: {result_file}", important=True)
+            debug_print(f"Analysis complete. File available at: {result_file}", important=True)
         else:
-            debug_print("❌ Analysis completed but file could not be saved", important=True)
+            debug_print("Analysis completed but file could not be saved", important=True)
             
     except Exception as e:
         debug_print(f"❌ Fatal error: {str(e)}", important=True)
 
 if __name__ == "__main__":
+    # Simplified entry point for Hugging Face
     main()
