@@ -1,5 +1,3 @@
-# README.md
----
 title: PSX Breakout Scanner
 emoji: 📈
 colorFrom: blue
