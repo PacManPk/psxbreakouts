@@ -22,6 +22,9 @@ MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
                '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
 
+# Global variable to store the loaded data
+loaded_data = None
+
 # === Core Functions ===
 def get_symbols_data():
     """Load symbol data from both PSX stock data and KMI compliance files"""
@@ -343,6 +346,8 @@ def highlight_status(val):
 
 def load_data():
     """Load and return the data"""
+    global loaded_data
+
     symbols_data = get_symbols_data()
     if not symbols_data:
         return None, None, None, None, None, None, None, None, ["All"]
@@ -405,6 +410,7 @@ def load_data():
     prev_month_data = pd.concat(all_month_data) if all_month_data else None
 
     result_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
+    loaded_data = result_df
     excel_file = save_to_excel(result_df, today_date)
 
     daily_counts = get_counts(result_df, 'DAILY_STATUS')
@@ -435,8 +441,15 @@ def load_data():
         sectors
     )
 
-def filter_data(df, filter_breakout, filter_sector, filter_kmi):
+def filter_data(filter_breakout, filter_sector, filter_kmi):
     """Filter data based on user selections"""
+    global loaded_data
+
+    if loaded_data is None:
+        return gr.Dataframe()
+
+    df = loaded_data.copy()
+
     if filter_breakout:
         df = df[(df['DAILY_STATUS'].str.contains("▲▲")) &
                 (df['WEEKLY_STATUS'].str.contains("▲▲")) &
@@ -513,19 +526,19 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
 
     filter_breakout.change(
         fn=filter_data,
-        inputs=[dataframe, filter_breakout, filter_sector, filter_kmi],
+        inputs=[filter_breakout, filter_sector, filter_kmi],
         outputs=dataframe
     )
 
     filter_sector.change(
         fn=filter_data,
-        inputs=[dataframe, filter_breakout, filter_sector, filter_kmi],
+        inputs=[filter_breakout, filter_sector, filter_kmi],
         outputs=dataframe
     )
 
     filter_kmi.change(
         fn=filter_data,
-        inputs=[dataframe, filter_breakout, filter_sector, filter_kmi],
+        inputs=[filter_breakout, filter_sector, filter_kmi],
         outputs=dataframe
     )
 
