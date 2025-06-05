@@ -1,4 +1,18 @@
-import gradio as gr import requests import pandas as pd from bs4 import BeautifulSoup from datetime import datetime, timedelta import os import tempfile import plotly.express as px from pytz import timezone from openpyxl import load_workbook, Workbook from openpyxl.utils import get_column_letter from openpyxl.styles import Font, Alignment, PatternFill, Border, Side from openpyxl.chart import PieChart, Reference from openpyxl.chart.label import DataLabelList from io import StringIO
+import gradio as gr
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+import os
+import tempfile
+import plotly.express as px
+from pytz import timezone
+from openpyxl import load_workbook, Workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.chart import PieChart, Reference
+from openpyxl.chart.label import DataLabelList
+from io import StringIO
 
 === Configuration ===
 
