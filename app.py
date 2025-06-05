@@ -33,7 +33,9 @@ latest_df = gr.State()
     with gr.Tabs():
         with gr.Tab("📊 Results Table"):
             result_table = gr.Dataframe(
+                headers="row",
                 interactive=False,
+                wrap=True,
                 label="Results Preview"
             )
 
@@ -103,3 +105,4 @@ return demo
 === Launch App ===
 
 if name == "main": demo = psx_breakout_interface() demo.launch()
+
