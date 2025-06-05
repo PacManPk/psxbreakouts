@@ -3,17 +3,16 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+import os
 import tempfile
 import plotly.express as px
 from pytz import timezone
-from openpyxl import Workbook
+from openpyxl import load_workbook, Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.chart import PieChart, Reference
+from openpyxl.chart.label import DataLabelList
 from io import StringIO
-import logging
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # === Configuration ===
 PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
@@ -23,59 +22,51 @@ MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
                '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
 
-# === Core Functions ===
+# === Core Functions (from original script) ===
 def get_symbols_data():
     """Load symbol data from both PSX stock data and KMI compliance files"""
     try:
         # Load PSX Stock Data
-        logging.info("Fetching PSX stock data...")
-        psx_response = requests.get(PSX_STOCK_DATA_URL, timeout=30)
+        psx_response = requests.get(PSX_STOCK_DATA_URL)
         psx_response.raise_for_status()
-        
-        # Handle potential encoding issues
-        content = psx_response.content.decode('utf-8-sig')
-        psx_df = pd.read_csv(StringIO(content))
-        
+        psx_df = pd.read_csv(StringIO(psx_response.text))
+
         # Verify required columns
         psx_required = ['Symbol', 'Company Name', 'Sector']
         for col in psx_required:
             if col not in psx_df.columns:
                 raise ValueError(f"Missing column: {col}")
-        
+
         # Load KMI compliance data
-        logging.info("Fetching KMI compliance data...")
-        kmi_response = requests.get(KMI_SYMBOLS_FILE, timeout=30)
+        kmi_response = requests.get(KMI_SYMBOLS_FILE)
         kmi_response.raise_for_status()
-        
-        # Handle KMI as text file (one symbol per line)
+        kmi_df = pd.read_csv(StringIO(kmi_response.text))
+
+        # Create list of KMI compliant symbols
         kmi_symbols = []
-        kmi_content = kmi_response.text.splitlines()
-        for line in kmi_content:
-            if line.strip() and not line.startswith(('#', '//')):
-                kmi_symbols.append(line.strip().upper())
-        
+        if 'Symbol' in kmi_df.columns:
+            kmi_symbols = kmi_df['Symbol'].str.strip().str.upper().tolist()
+
         # Merge data into comprehensive dictionary
         symbols_data = {}
         for _, row in psx_df.iterrows():
-            symbol = str(row['Symbol']).strip().upper()
+            symbol = row['Symbol'].strip().upper()
             symbols_data[symbol] = {
                 'Company': row['Company Name'],
                 'Sector': row['Sector'],
                 'KMI': 'Yes' if symbol in kmi_symbols else 'No'
             }
 
-        logging.info(f"Loaded data for {len(symbols_data)} symbols")
         return symbols_data
 
     except Exception as e:
-        logging.error(f"Error loading symbols data: {str(e)}")
+        print(f"Error loading symbols data: {e}")
         return {}
 
 def fetch_market_data(date):
     """Fetch market data from PSX historical page for specific date"""
     try:
         date_str = date.strftime('%Y-%m-%d')
-        logging.info(f"Fetching market data for {date_str}")
         response = requests.post(PSX_HISTORICAL_URL, data={'date': date_str}, timeout=30)
         response.raise_for_status()
 
@@ -83,7 +74,6 @@ def fetch_market_data(date):
         rows = soup.find_all('tr')
 
         if len(rows) <= 1:
-            logging.warning(f"No data found for {date_str}")
             return None, None
 
         data = []
@@ -108,12 +98,11 @@ def fetch_market_data(date):
 
         if data:
             df = pd.DataFrame(data, columns=['SYMBOL', 'LDCP', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME'])
-            logging.info(f"Found {len(df)} records for {date_str}")
             return df, date_str
 
         return None, None
     except Exception as e:
-        logging.error(f"Error fetching data for {date_str}: {str(e)}")
+        print(f"Error fetching data: {str(e)}")
         return None, None
 
 def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data):
@@ -146,7 +135,7 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
             else:
                 volume_str = "0"
         except Exception as e:
-            logging.error(f"Error processing numerical values for {symbol}: {str(e)}")
+            print(f"Error processing numerical values for {symbol}: {str(e)}")
             continue
 
         # Daily breakout logic
@@ -353,7 +342,7 @@ def save_to_excel(df, report_date):
             return EXCEL_FILE
 
     except Exception as e:
-        logging.error(f"Error saving Excel file: {e}")
+        print(f"Error saving Excel file: {e}")
         return None
 
 # === Gradio Interface ===
@@ -374,14 +363,34 @@ def create_pie_chart(counts, title):
     fig = px.pie(df, values='Count', names='Status', title=title)
     return fig
 
+def color_status(row):
+    """Apply background colors based on status for Gradio Dataframe"""
+    colors = {
+        "▲▲ Daily Breakout": "#008000",  # Green
+        "▼▼ Daily Breakdown": "#FF0000",  # Red
+        "– Daily Within Range": "#D9D9D9",  # Gray
+        "▲▲ Weekly Breakout": "#008000",
+        "▼▼ Weekly Breakdown": "#FF0000",
+        "– Weekly Within Range": "#D9D9D9",
+        "▲▲ Monthly Breakout": "#008000",
+        "▼▼ Monthly Breakdown": "#FF0000",
+        "– Monthly Within Range": "#D9D9D9"
+    }
+    
+    return [
+        f"background-color: {colors.get(row['DAILY_STATUS'], 'transparent')}",
+        f"background-color: {colors.get(row['WEEKLY_STATUS'], 'transparent')}",
+        f"background-color: {colors.get(row['MONTHLY_STATUS'], 'transparent')}"
+    ]
+
 def run_analysis():
     """Main analysis function for Gradio"""
-    logging.info("Starting PSX Breakout Analysis")
+    print("🔍 Starting PSX Breakout Analysis")
     
     # Step 1: Get symbols data
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return [None] * 8
+        return None, None, None, None, None, None, None, None, None
     
     # Step 2: Find most recent trading day
     date_to_try = datetime.now()
@@ -397,14 +406,14 @@ def run_analysis():
         attempts += 1
 
     if today_data is None:
-        logging.error("No market data found")
-        return [None] * 8
+        print("❌ No market data found")
+        return None, None, None, None, None, None, None, None, None
 
     # Filter valid symbols
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
-        logging.error("No valid symbols found")
-        return [None] * 8
+        print("⚠️ No valid symbols found")
+        return None, None, None, None, None, None, None, None, None
 
     # Step 3: Get historical data
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
@@ -468,22 +477,34 @@ def run_analysis():
     daily_table = pd.DataFrame.from_dict(daily_counts, orient='index').reset_index()
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
+    
+    # Format main dataframe for display
+    display_df = result_df[[
+        'SYMBOL', 'COMPANY', 'SECTOR', 'KMI_COMPLIANT', 'VOLUME',
+        'CLOSE', 'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'
+    ]].copy()
+    
+    # Add color styling
+    styled_df = display_df.style.apply(color_status, axis=1, subset=[
+        'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'
+    ])
 
     return (
         excel_file,
-        result_df,
+        styled_df,
         fig_daily,
         fig_weekly,
         fig_monthly,
         daily_table,
         weekly_table,
-        monthly_table
+        monthly_table,
+        display_df  # For tab display
     )
 
 def is_valid_symbol(symbol, symbols_data):
     """Check if symbol is valid and not a futures contract"""
     try:
-        symbol = str(symbol).strip().upper()
+        symbol = symbol.strip().upper()
         return (symbol in symbols_data) and not any(month in symbol for month in MONTH_CODES)
     except:
         return False
@@ -492,131 +513,123 @@ def is_weekend(date):
     """Check if date is weekend (Saturday/Sunday)"""
     return date.weekday() >= 5
 
-# Gradio Interface
-with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
-    # Header section
+# Gradio Interface with new design
+with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft(primary_hue="blue", secondary_hue="gray")) as app:
     gr.Markdown("""
-    <div style='text-align: center; margin-bottom: 20px'>
-        <h1 style='color: #1F4E78'>📈 PSX Breakout Scanner</h1>
-        <p>Identifies breakout/breakdown signals in Pakistan Stock Exchange</p>
+    <div style='text-align: center;'>
+        <h1>📈 PSX Breakout Scanner</h1>
+        <p>Professional analysis tool for Pakistan Stock Exchange breakouts and breakdowns</p>
     </div>
     """)
     
-    # Control section
+    # Top controls row
     with gr.Row():
         run_btn = gr.Button("Run Analysis", variant="primary", size="lg")
-        download = gr.File(label="Download Excel Report", visible=False)
+        download_btn = gr.File(label="Download Full Report", visible=False, elem_classes="download-btn")
     
-    # Status indicator
-    status_text = gr.Textbox(label="Status", visible=True, interactive=False)
-    
-    # Main preview section
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### Data Preview")
-            dataframe = gr.Dataframe(
+    # Main content area
+    with gr.Tabs():
+        # Data Preview Tab
+        with gr.Tab("📊 Full Analysis Preview"):
+            gr.Markdown("### Breakout Analysis Results")
+            data_preview = gr.Dataframe(
                 wrap=True,
-                interactive=False,
-                elem_id="main-dataframe"
+                elem_classes="full-width-table",
+                column_widths=["8%", "20%", "15%", "8%", "10%", "10%", "13%", "13%", "13%"]
             )
-    
-    # Analysis sections
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### Daily Analysis")
+        
+        # Daily Analysis Tab
+        with gr.Tab("📈 Daily Analysis"):
             with gr.Row():
-                daily_plot = gr.Plot()
-                daily_table = gr.Dataframe(
-                    headers=["Status", "Count"],
-                    interactive=False,
-                    elem_classes="status-table"
-                )
-    
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### Weekly Analysis")
+                with gr.Column(scale=3):
+                    gr.Markdown("### Daily Breakout Distribution")
+                    daily_plot = gr.Plot()
+                with gr.Column(scale=1):
+                    gr.Markdown("### Daily Summary")
+                    daily_table = gr.Dataframe(
+                        headers=["Status", "Count"],
+                        datatype=["str", "number"],
+                        row_count=3,
+                        col_count=(2, "fixed")
+                    )
+        
+        # Weekly Analysis Tab
+        with gr.Tab("📆 Weekly Analysis"):
             with gr.Row():
-                weekly_plot = gr.Plot()
-                weekly_table = gr.Dataframe(
-                    headers=["Status", "Count"],
-                    interactive=False,
-                    elem_classes="status-table"
-                )
-    
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### Monthly Analysis")
+                with gr.Column(scale=3):
+                    gr.Markdown("### Weekly Breakout Distribution")
+                    weekly_plot = gr.Plot()
+                with gr.Column(scale=1):
+                    gr.Markdown("### Weekly Summary")
+                    weekly_table = gr.Dataframe(
+                        headers=["Status", "Count"],
+                        datatype=["str", "number"],
+                        row_count=3,
+                        col_count=(2, "fixed")
+                    )
+        
+        # Monthly Analysis Tab
+        with gr.Tab("🗓️ Monthly Analysis"):
             with gr.Row():
-                monthly_plot = gr.Plot()
-                monthly_table = gr.Dataframe(
-                    headers=["Status", "Count"],
-                    interactive=False,
-                    elem_classes="status-table"
-                )
+                with gr.Column(scale=3):
+                    gr.Markdown("### Monthly Breakout Distribution")
+                    monthly_plot = gr.Plot()
+                with gr.Column(scale=1):
+                    gr.Markdown("### Monthly Summary")
+                    monthly_table = gr.Dataframe(
+                        headers=["Status", "Count"],
+                        datatype=["str", "number"],
+                        row_count=3,
+                        col_count=(2, "fixed")
+                    )
     
-    # Custom CSS for better appearance
+    # Custom CSS for professional styling
     app.css = """
-    #main-dataframe {
-        max-height: 600px;
-        overflow-y: auto;
+    .download-btn {
+        margin-left: auto !important;
+        max-width: 300px;
+    }
+    .full-width-table {
         width: 100%;
+        overflow-x: auto;
+        display: block;
     }
-    .status-table {
-        width: 300px;
-        margin-left: 20px;
+    .gr-dataframe {
+        font-family: Arial, sans-serif;
     }
-    .gradio-container {
-        max-width: 1200px !important;
-    }
-    .dataframe table {
-        width: 100% !important;
-    }
-    .dataframe th {
+    .gr-dataframe th {
         background-color: #4F81BD !important;
         color: white !important;
         font-weight: bold !important;
-        position: sticky;
-        top: 0;
     }
-    .dataframe td {
-        padding: 8px !important;
+    .gr-dataframe tr:nth-child(even) {
+        background-color: #f2f2f2;
     }
-    .breakout {
-        background-color: #008000 !important;
-        color: white !important;
+    .gr-tabs {
+        margin-top: 20px;
     }
-    .breakdown {
-        background-color: #FF0000 !important;
-        color: white !important;
+    .gr-button {
+        font-weight: bold;
     }
-    .within-range {
-        background-color: #D9D9D9 !important;
+    .gr-plot-container {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     """
-
-    def run_analysis_wrapper():
-        """Wrapper to handle the styled dataframe output"""
-        try:
-            results = run_analysis()
-            status_msg = "Analysis completed successfully"
-            return (*results, status_msg)
-        except Exception as e:
-            logging.exception("Error in analysis")
-            status_msg = f"Error: {str(e)}"
-            return (None, None, None, None, None, None, None, None, status_msg)
     
+    # Run button functionality
     run_btn.click(
-        fn=run_analysis_wrapper,
+        fn=run_analysis,
         outputs=[
-            download,
-            dataframe,
+            download_btn,
+            data_preview,
             daily_plot,
             weekly_plot,
             monthly_plot,
             daily_table,
             weekly_table,
             monthly_table,
-            status_text
+            data_preview  # For tab display
         ]
     )
 
