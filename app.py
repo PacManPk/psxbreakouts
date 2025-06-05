@@ -378,6 +378,16 @@ def filter_data(df, filter_breakout, filter_sector, filter_kmi):
 
     return df
 
+def highlight_status(val):
+    """Highlight status cells based on their value"""
+    if "▲▲" in val:
+        return 'background-color: #008000; color: white'
+    elif "▼▼" in val:
+        return 'background-color: #FF0000; color: white'
+    elif "–" in val:
+        return 'background-color: #D9D9D9; color: black'
+    return ''
+
 def run_analysis(filter_breakout, filter_sector, filter_kmi):
     """Main analysis function for Gradio"""
     print("🔍 Starting PSX Breakout Analysis")
@@ -385,7 +395,7 @@ def run_analysis(filter_breakout, filter_sector, filter_kmi):
     # Step 1: Get symbols data
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
 
     # Step 2: Find most recent trading day
     date_to_try = datetime.now()
@@ -402,13 +412,13 @@ def run_analysis(filter_breakout, filter_sector, filter_kmi):
 
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
 
     # Filter valid symbols
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
 
     # Step 3: Get historical data
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
@@ -476,15 +486,22 @@ def run_analysis(filter_breakout, filter_sector, filter_kmi):
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
 
+    # Apply styling to the dataframe
+    styled_df = filtered_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'])
+
+    # Get unique sectors for the filter dropdown
+    sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
+
     return (
         excel_file,
-        filtered_df,
+        styled_df,
         fig_daily,
         fig_weekly,
         fig_monthly,
         daily_table,
         weekly_table,
-        monthly_table
+        monthly_table,
+        gr.Dropdown.update(choices=sectors)
     )
 
 def is_valid_symbol(symbol, symbols_data):
@@ -543,7 +560,8 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
             monthly_plot,
             daily_table,
             weekly_table,
-            monthly_table
+            monthly_table,
+            filter_sector
         ]
     )
 
