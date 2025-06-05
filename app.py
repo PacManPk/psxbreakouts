@@ -3,16 +3,14 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-import os
 import tempfile
 import plotly.express as px
 from pytz import timezone
-from openpyxl import load_workbook, Workbook
+from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.chart import PieChart, Reference
-from openpyxl.chart.label import DataLabelList
 from io import StringIO
+import numpy as np
 
 # === Configuration ===
 PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
@@ -22,7 +20,7 @@ MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
                '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
 
-# === Core Functions (from original script) ===
+# === Core Functions ===
 def get_symbols_data():
     """Load symbol data from both PSX stock data and KMI compliance files"""
     try:
@@ -506,7 +504,7 @@ def is_weekend(date):
 with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     # Header section
     gr.Markdown("""
-    <div style='text-align: center'>
+    <div style='text-align: center; margin-bottom: 20px'>
         <h1 style='color: #1F4E78'>📈 PSX Breakout Scanner</h1>
         <p>Identifies breakout/breakdown signals in Pakistan Stock Exchange</p>
     </div>
@@ -518,57 +516,60 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         download = gr.File(label="Download Excel Report", visible=False)
     
     # Main preview section - now takes full width
-    with gr.Tab("Data Preview"):
-        dataframe = gr.Dataframe(
-            wrap=True,
-            height=600,
-            interactive=False,
-            datatype=["str", "str", "str", "str", "str", 
-                     "number", "number", "number", "number", "number",
-                     "number", "number", "number", "number",
-                     "number", "number", "str", "str", "str"],
-            column_widths=[100, 200, 150, 80, 100, 80, 80, 80, 80, 80, 
-                          80, 80, 80, 80, 80, 80, 120, 120, 120]
-        )
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### Data Preview")
+            dataframe = gr.Dataframe(
+                wrap=True,
+                interactive=False,
+                elem_id="main-dataframe"
+            )
     
-    # Analysis tabs
-    with gr.Tab("Breakout Analysis"):
-        with gr.Tabs():
-            with gr.Tab("Daily"):
-                with gr.Row():
-                    daily_plot = gr.Plot()
-                    daily_table = gr.Dataframe(
-                        headers=["Status", "Count"],
-                        interactive=False,
-                        datatype=["str", "number"],
-                        row_count=3,
-                        col_count=2
-                    )
-            
-            with gr.Tab("Weekly"):
-                with gr.Row():
-                    weekly_plot = gr.Plot()
-                    weekly_table = gr.Dataframe(
-                        headers=["Status", "Count"],
-                        interactive=False,
-                        datatype=["str", "number"],
-                        row_count=3,
-                        col_count=2
-                    )
-            
-            with gr.Tab("Monthly"):
-                with gr.Row():
-                    monthly_plot = gr.Plot()
-                    monthly_table = gr.Dataframe(
-                        headers=["Status", "Count"],
-                        interactive=False,
-                        datatype=["str", "number"],
-                        row_count=3,
-                        col_count=2
-                    )
+    # Analysis sections
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### Daily Analysis")
+            with gr.Row():
+                daily_plot = gr.Plot()
+                daily_table = gr.Dataframe(
+                    headers=["Status", "Count"],
+                    interactive=False,
+                    elem_classes="status-table"
+                )
+    
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### Weekly Analysis")
+            with gr.Row():
+                weekly_plot = gr.Plot()
+                weekly_table = gr.Dataframe(
+                    headers=["Status", "Count"],
+                    interactive=False,
+                    elem_classes="status-table"
+                )
+    
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### Monthly Analysis")
+            with gr.Row():
+                monthly_plot = gr.Plot()
+                monthly_table = gr.Dataframe(
+                    headers=["Status", "Count"],
+                    interactive=False,
+                    elem_classes="status-table"
+                )
     
     # Custom CSS for better appearance
     app.css = """
+    #main-dataframe {
+        max-height: 600px;
+        overflow-y: auto;
+        width: 100%;
+    }
+    .status-table {
+        width: 300px;
+        margin-left: 20px;
+    }
     .gradio-container {
         max-width: 1200px !important;
     }
@@ -579,6 +580,8 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         background-color: #4F81BD !important;
         color: white !important;
         font-weight: bold !important;
+        position: sticky;
+        top: 0;
     }
     .dataframe td {
         padding: 8px !important;
