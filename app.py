@@ -363,15 +363,30 @@ def create_pie_chart(counts, title):
     fig = px.pie(df, values='Count', names='Status', title=title)
     return fig
 
-def run_analysis():
+def filter_data(df, filter_breakout, filter_sector, filter_kmi):
+    """Filter data based on user selections"""
+    if filter_breakout:
+        df = df[df['DAILY_STATUS'].str.contains("▲▲") &
+                df['WEEKLY_STATUS'].str.contains("▲▲") &
+                df['MONTHLY_STATUS'].str.contains("▲▲")]
+
+    if filter_sector != "All":
+        df = df[df['SECTOR'] == filter_sector]
+
+    if filter_kmi != "All":
+        df = df[df['KMI_COMPLIANT'] == filter_kmi]
+
+    return df
+
+def run_analysis(filter_breakout, filter_sector, filter_kmi):
     """Main analysis function for Gradio"""
     print("🔍 Starting PSX Breakout Analysis")
-    
+
     # Step 1: Get symbols data
     symbols_data = get_symbols_data()
     if not symbols_data:
         return None, None, None, None, None, None, None, None
-    
+
     # Step 2: Find most recent trading day
     date_to_try = datetime.now()
     attempts = 0
@@ -397,7 +412,7 @@ def run_analysis():
 
     # Step 3: Get historical data
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
-    
+
     # Previous day data
     prev_day_data = None
     days_back = 1
@@ -442,25 +457,28 @@ def run_analysis():
     # Step 4: Calculate breakout stats
     result_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
 
-    # Step 5: Generate outputs
+    # Step 5: Filter data based on user selections
+    filtered_df = filter_data(result_df, filter_breakout, filter_sector, filter_kmi)
+
+    # Step 6: Generate outputs
     excel_file = save_to_excel(result_df, today_date)
-    
+
     # Create visualizations
-    daily_counts = get_counts(result_df, 'DAILY_STATUS')
-    weekly_counts = get_counts(result_df, 'WEEKLY_STATUS')
-    monthly_counts = get_counts(result_df, 'MONTHLY_STATUS')
-    
+    daily_counts = get_counts(filtered_df, 'DAILY_STATUS')
+    weekly_counts = get_counts(filtered_df, 'WEEKLY_STATUS')
+    monthly_counts = get_counts(filtered_df, 'MONTHLY_STATUS')
+
     fig_daily = create_pie_chart(daily_counts, "Daily Breakout Distribution")
     fig_weekly = create_pie_chart(weekly_counts, "Weekly Breakout Distribution")
     fig_monthly = create_pie_chart(monthly_counts, "Monthly Breakout Distribution")
-    
+
     daily_table = pd.DataFrame.from_dict(daily_counts, orient='index').reset_index()
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
 
     return (
         excel_file,
-        result_df,
+        filtered_df,
         fig_daily,
         fig_weekly,
         fig_monthly,
@@ -485,37 +503,38 @@ def is_weekend(date):
 with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     gr.Markdown("# 📈 PSX Breakout Scanner")
     gr.Markdown("Identifies breakout/breakdown signals in Pakistan Stock Exchange")
-    
+
     with gr.Row():
         run_btn = gr.Button("Run Analysis", variant="primary")
-    
+        download = gr.File(label="Download Excel Report")
+
     with gr.Row():
-        with gr.Column():
-            gr.Markdown("### Download Full Report")
-            download = gr.File(label="Excel Report")
-        
-        with gr.Column():
-            gr.Markdown("### Preview Data")
-            dataframe = gr.Dataframe(interactive=False, wrap=True)
-    
+        filter_breakout = gr.Checkbox(label="Show only stocks with Daily, Weekly, and Monthly Breakouts")
+        filter_sector = gr.Dropdown(label="Filter by Sector", choices=["All"], value="All")
+        filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All", "Yes", "No"], value="All")
+
+    with gr.Row():
+        dataframe = gr.Dataframe(interactive=False, wrap=True)
+
     with gr.Row():
         with gr.Column():
             gr.Markdown("### Daily Analysis")
             daily_plot = gr.Plot()
             daily_table = gr.Dataframe(headers=["Status", "Count"])
-        
+
         with gr.Column():
             gr.Markdown("### Weekly Analysis")
             weekly_plot = gr.Plot()
             weekly_table = gr.Dataframe(headers=["Status", "Count"])
-        
+
         with gr.Column():
             gr.Markdown("### Monthly Analysis")
             monthly_plot = gr.Plot()
             monthly_table = gr.Dataframe(headers=["Status", "Count"])
-    
+
     run_btn.click(
         fn=run_analysis,
+        inputs=[filter_breakout, filter_sector, filter_kmi],
         outputs=[
             download,
             dataframe,
