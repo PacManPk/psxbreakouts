@@ -3,18 +3,17 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-import os
 import tempfile
 import plotly.express as px
 from pytz import timezone
-from openpyxl import load_workbook, Workbook
+from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.chart import PieChart, Reference
+from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.chart import PieChart
 from openpyxl.chart.label import DataLabelList
 from io import StringIO
 
-# === Configuration ===
+# Configuration
 PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
 PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
@@ -25,7 +24,6 @@ MAX_DAYS_BACK = 5
 # Global variable to store the loaded data
 loaded_data = None
 
-# === Core Functions ===
 def get_symbols_data():
     """Load symbol data from both PSX stock data and KMI compliance files"""
     try:
@@ -350,7 +348,7 @@ def load_data():
 
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None, ["All"]
+        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"]), gr.Dropdown.update(choices=["All", "Yes", "No"])
 
     date_to_try = datetime.now()
     attempts = 0
@@ -366,12 +364,12 @@ def load_data():
 
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, None, ["All"]
+        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"]), gr.Dropdown.update(choices=["All", "Yes", "No"])
 
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None, ["All"]
+        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"]), gr.Dropdown.update(choices=["All", "Yes", "No"])
 
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
 
@@ -438,7 +436,8 @@ def load_data():
         daily_table,
         weekly_table,
         monthly_table,
-        sectors
+        gr.Dropdown.update(choices=sectors),
+        gr.Dropdown.update(choices=["All", "Yes", "No"])
     )
 
 def filter_data(filter_breakout, filter_sector, filter_kmi):
@@ -488,7 +487,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     with gr.Row():
         filter_breakout = gr.Checkbox(label="Show only stocks with Daily, Weekly, and Monthly Breakouts")
         filter_sector = gr.Dropdown(label="Filter by Sector", choices=["All"], value="All")
-        filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All", "Yes", "No"], value="All")
+        filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All"], value="All")
 
     with gr.Row():
         dataframe = gr.Dataframe(interactive=False, wrap=True)
@@ -520,7 +519,8 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
             daily_table,
             weekly_table,
             monthly_table,
-            filter_sector
+            filter_sector,
+            filter_kmi
         ]
     )
 
