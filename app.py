@@ -47,21 +47,18 @@ def psx_breakout_interface():
         latest_df = gr.State()
         report_date = gr.State()
 
-        with gr.Row():
-            download_button = gr.Button("📅 Download Excel Report", visible=False)
-            download_file = gr.File(visible=False)
+        download_button = gr.Button("🗓️ Download Excel Report", visible=False)
+        download_file = gr.File(visible=False)
 
         status_output = gr.Textbox(label="Status", interactive=False)
 
-        with gr.Row():
-            run_button = gr.Button("🔍 Run Scanner", scale=2)
+        run_button = gr.Button("🔍 Run Scanner", scale=2)
 
         with gr.Tabs():
             with gr.Tab("📊 Results Table"):
                 result_table = gr.Dataframe(
-                    headers="row",
+                    value=pd.DataFrame(),
                     interactive=False,
-                    wrap=True,
                     label="Results Preview"
                 )
 
