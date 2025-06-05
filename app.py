@@ -14,15 +14,12 @@ from openpyxl.chart import PieChart, Reference
 from openpyxl.chart.label import DataLabelList
 from io import StringIO
 
-# === Configuration ===
 PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
 PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
-MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN',
-               '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
+MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN', '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
 
-# === Core Functions (placeholders) ===
 def get_symbols_data():
     return pd.read_csv(PSX_STOCK_DATA_URL)
 
@@ -40,7 +37,6 @@ def save_to_excel(df, date_str):
     df.to_excel(file_path, index=False)
     return file_path
 
-# === Gradio UI ===
 def psx_breakout_interface():
     with gr.Blocks(title="PSX Breakout Scanner") as demo:
         gr.Markdown("""
@@ -51,11 +47,14 @@ def psx_breakout_interface():
         latest_df = gr.State()
         report_date = gr.State()
 
-        download_button = gr.Button("📂 Download Excel Report", visible=False)
-        download_file = gr.File(visible=False)
+        with gr.Row():
+            download_button = gr.Button("📅 Download Excel Report", visible=False)
+            download_file = gr.File(visible=False)
+
         status_output = gr.Textbox(label="Status", interactive=False)
 
-        run_button = gr.Button("🔍 Run Scanner", scale=2)
+        with gr.Row():
+            run_button = gr.Button("🔍 Run Scanner", scale=2)
 
         with gr.Tabs():
             with gr.Tab("📊 Results Table"):
@@ -63,14 +62,11 @@ def psx_breakout_interface():
                     headers="row",
                     interactive=False,
                     wrap=True,
-                    height=500,
                     label="Results Preview"
                 )
 
-            with gr.Tab("📥 Download"):
-                gr.Markdown("Click the button below to export results to Excel.")
-                download_button.render()
-                download_file.render()
+            with gr.Tab("📅 Download"):
+                gr.Markdown("Click the button above to export results to Excel.")
 
         def run_all():
             today = datetime.now(timezone('Asia/Karachi')).date()
@@ -132,7 +128,6 @@ def psx_breakout_interface():
 
     return demo
 
-# === Launch App ===
 if __name__ == "__main__":
     demo = psx_breakout_interface()
     demo.launch()
