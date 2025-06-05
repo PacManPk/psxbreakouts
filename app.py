@@ -19,14 +19,14 @@ latest_df = gr.State()
         download_button = gr.Button("📅 Download Excel Report", visible=False)
         download_file = gr.File(visible=False)
 
-    status_output = gr.HighlightedText(label="Status", combine_adjacent=True)
+    status_output = gr.HighlightedText(label="Status", interactive=False)
 
     with gr.Row():
         run_button = gr.Button("🔍 Run Scanner", scale=2)
 
     with gr.Tabs():
         with gr.Tab("📊 Results Table"):
-            result_table = gr.HTML()
+            result_table = gr.HTML(label="Results Preview")
 
         with gr.Tab("📅 Download"):
             gr.Markdown("Click the button above to export results to Excel.")
@@ -41,7 +41,7 @@ latest_df = gr.State()
             if today_data is not None:
                 break
         else:
-            return [("❌ No data found for recent days.", "red")], "<p>No data</p>", None, None
+            return [{"value": "❌ No data found for recent days.", "category": "error"}], "<p>No data found.</p>", None, None
 
         prev_day_data = pd.DataFrame()
         prev_week_data = pd.DataFrame()
@@ -67,33 +67,8 @@ latest_df = gr.State()
                 prev_month_data = pd.concat([prev_month_data, data], ignore_index=True)
 
         final_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
-
-        style = """
-        <style>
-        table {
-            border-collapse: collapse;
-            width: 100%;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        th {
-            background-color: #004080;
-            color: white;
-        }
-        .Breakout {
-            background-color: #ccffcc !important;
-        }
-        </style>
-        """
-
-        html_table = final_df.to_html(index=False, classes="Breakout")
-        return [("✅ Analysis Complete", "green")], style + html_table, final_df, date_str
+        styled_html = final_df.style.set_table_attributes('class="dataframe"').set_caption("Breakout Results").render()
+        return [{"value": "✅ Analysis Complete", "category": "success"}], styled_html, final_df, date_str
 
     def export_data(df, date_str):
         if df is not None and date_str:
