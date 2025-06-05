@@ -380,11 +380,11 @@ def filter_data(df, filter_breakout, filter_sector, filter_kmi):
 
 def highlight_status(val):
     """Highlight status cells based on their value"""
-    if "▲▲" in val:
+    if "▲▲" in str(val):
         return 'background-color: #008000; color: white'
-    elif "▼▼" in val:
+    elif "▼▼" in str(val):
         return 'background-color: #FF0000; color: white'
-    elif "–" in val:
+    elif "–" in str(val):
         return 'background-color: #D9D9D9; color: black'
     return ''
 
@@ -395,7 +395,7 @@ def run_analysis(filter_breakout, filter_sector, filter_kmi):
     # Step 1: Get symbols data
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, ["All"]
 
     # Step 2: Find most recent trading day
     date_to_try = datetime.now()
@@ -412,13 +412,13 @@ def run_analysis(filter_breakout, filter_sector, filter_kmi):
 
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, ["All"]
 
     # Filter valid symbols
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, ["All"]
 
     # Step 3: Get historical data
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
@@ -501,7 +501,7 @@ def run_analysis(filter_breakout, filter_sector, filter_kmi):
         daily_table,
         weekly_table,
         monthly_table,
-        gr.Dropdown.update(choices=sectors)
+        sectors
     )
 
 def is_valid_symbol(symbol, symbols_data):
