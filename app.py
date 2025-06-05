@@ -361,11 +361,10 @@ def create_pie_chart(counts, title):
     fig = px.pie(df, values='Count', names='Status', title=title)
     return fig
 
+# ... [All previous code remains the same until the style_dataframe function] ...
+
 def style_dataframe(df):
-    """Apply conditional styling to match Excel colors"""
-    status_cols = ['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS']
-    styled_df = df.copy()
-    
+    """Apply conditional styling and return as HTML table"""
     # Define color mapping
     color_map = {
         "▲▲": "#008000",  # Green
@@ -373,14 +372,71 @@ def style_dataframe(df):
         "–": "#D9D9D9"    # Gray
     }
     
-    # Apply styling to status columns
-    for col in status_cols:
-        if col in styled_df.columns:
-            styled_df[col] = styled_df[col].apply(
-                lambda x: f"background-color: {next((v for k, v in color_map.items() if k in str(x)), 'transparent')};"
-            )
+    # Start building HTML table
+    html = """
+    <style>
+        .psx-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: Arial, sans-serif;
+        }
+        .psx-table th {
+            background-color: #4F81BD;
+            color: white;
+            padding: 8px;
+            text-align: center;
+            border: 1px solid #ddd;
+            position: sticky;
+            top: 0;
+        }
+        .psx-table td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        .psx-table tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+    </style>
+    <table class="psx-table">
+        <thead>
+            <tr>
+    """
     
-    return styled_df.style
+    # Add headers
+    for col in df.columns:
+        html += f"<th>{col}</th>"
+    html += "</tr></thead><tbody>"
+    
+    # Add rows with conditional formatting
+    for _, row in df.iterrows():
+        html += "<tr>"
+        for col in df.columns:
+            value = row[col]
+            style = ""
+            
+            # Apply background color for status columns
+            if col in ['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS']:
+                for prefix, color in color_map.items():
+                    if prefix in str(value):
+                        style = f'style="background-color: {color};"'
+                        break
+            
+            html += f'<td {style}>{value}</td>'
+        html += "</tr>"
+    
+    html += "</tbody></table>"
+    return html
+
+def run_analysis_wrapper():
+    """Wrapper to handle the styled dataframe output"""
+    results = run_analysis()
+    if results[1] is not None:
+        html_table = style_dataframe(results[1])
+        return (results[0], html_table) + results[2:]
+    return results
+
+# ... [The rest of the code remains the same] ...
 
 def run_analysis():
     """Main analysis function for Gradio"""
