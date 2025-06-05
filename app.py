@@ -307,8 +307,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
             return [None] * 8 + ("Analysis failed - see logs",)
         except Exception as e:
             logging.exception("Error in analysis wrapper")
-            return [None] * 8 + (f"Error: {str(e)}",)
-    
+            return [None] * 8 + [f"Error: {str(e)}"]
     run_btn.click(
         fn=run_analysis_wrapper,
         outputs=[
