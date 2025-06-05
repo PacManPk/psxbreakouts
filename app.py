@@ -10,23 +10,23 @@ def calculate_breakout_stats(today_df, prev_day_df, prev_week_df, prev_month_df,
 
 def save_to_excel(df, date_str): temp_dir = tempfile.mkdtemp() file_path = os.path.join(temp_dir, f"PSX_Breakout_{date_str}.xlsx") df.to_excel(file_path, index=False) return file_path
 
-def style_dataframe_html(df): styled_df = df.copy() styles = [] for _, row in styled_df.iterrows(): color = '#d4edda' if row.get('Signal') == 'Breakout' else '#f8d7da' styles.append([f'background-color: {color}'] * len(row)) return df.style.set_table_attributes('class="styled-table"').apply(lambda _: styles, axis=1)
-
 def psx_breakout_interface(): with gr.Blocks(title="PSX Breakout Scanner") as demo: gr.Markdown(""" # 📈 PSX Breakout Scanner Analyze daily, weekly, and monthly breakout signals for PSX-listed stocks. """)
 
 latest_df = gr.State()
     report_date = gr.State()
 
-    download_button = gr.Button("📅 Download Excel Report", visible=False)
-    download_file = gr.File(visible=False)
+    with gr.Row():
+        download_button = gr.Button("📅 Download Excel Report", visible=False)
+        download_file = gr.File(visible=False)
 
     status_output = gr.HighlightedText(label="Status", combine_adjacent=True)
 
-    run_button = gr.Button("🔍 Run Scanner", scale=2)
+    with gr.Row():
+        run_button = gr.Button("🔍 Run Scanner", scale=2)
 
     with gr.Tabs():
         with gr.Tab("📊 Results Table"):
-            result_table_html = gr.HTML(label="Results Preview")
+            result_table = gr.HTML()
 
         with gr.Tab("📅 Download"):
             gr.Markdown("Click the button above to export results to Excel.")
@@ -41,7 +41,7 @@ latest_df = gr.State()
             if today_data is not None:
                 break
         else:
-            return [("❌ No data found for recent days.", "red")], "", None, None
+            return [("❌ No data found for recent days.", "red")], "<p>No data</p>", None, None
 
         prev_day_data = pd.DataFrame()
         prev_week_data = pd.DataFrame()
@@ -67,8 +67,33 @@ latest_df = gr.State()
                 prev_month_data = pd.concat([prev_month_data, data], ignore_index=True)
 
         final_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
-        html = style_dataframe_html(final_df).to_html()
-        return [("✅ Analysis Complete", "green")], html, final_df, date_str
+
+        style = """
+        <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        th {
+            background-color: #004080;
+            color: white;
+        }
+        .Breakout {
+            background-color: #ccffcc !important;
+        }
+        </style>
+        """
+
+        html_table = final_df.to_html(index=False, classes="Breakout")
+        return [("✅ Analysis Complete", "green")], style + html_table, final_df, date_str
 
     def export_data(df, date_str):
         if df is not None and date_str:
@@ -79,7 +104,7 @@ latest_df = gr.State()
     run_button.click(
         fn=run_all,
         inputs=[],
-        outputs=[status_output, result_table_html, latest_df, report_date]
+        outputs=[status_output, result_table, latest_df, report_date]
     )
 
     run_button.click(lambda: gr.update(visible=True), None, download_button)
