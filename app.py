@@ -346,7 +346,7 @@ def load_data():
 
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"])
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     date_to_try = datetime.now()
     attempts = 0
@@ -362,12 +362,12 @@ def load_data():
 
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"])
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"])
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
 
@@ -421,7 +421,7 @@ def load_data():
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
 
-    styled_df = result_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'])
+    styled_df = result_df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'])
 
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
@@ -434,7 +434,7 @@ def load_data():
         daily_table,
         weekly_table,
         monthly_table,
-        gr.Dropdown.update(choices=sectors, value="All")
+        gr.update(choices=sectors, value="All")
     )
 
 def filter_data(filter_breakout, filter_sector, filter_kmi):
@@ -457,7 +457,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi):
     if filter_kmi != "All":
         df = df[df['KMI_COMPLIANT'] == filter_kmi]
 
-    styled_df = df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'])
+    styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'])
     return styled_df
 
 def is_valid_symbol(symbol, symbols_data):
