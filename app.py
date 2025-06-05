@@ -346,7 +346,7 @@ def load_data():
 
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None, ["All"]
+        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"])
 
     date_to_try = datetime.now()
     attempts = 0
@@ -362,12 +362,12 @@ def load_data():
 
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, None, ["All"]
+        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"])
 
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None, ["All"]
+        return None, None, None, None, None, None, None, None, gr.Dropdown.update(choices=["All"])
 
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
 
@@ -434,7 +434,7 @@ def load_data():
         daily_table,
         weekly_table,
         monthly_table,
-        sectors
+        gr.Dropdown.update(choices=sectors, value="All")
     )
 
 def filter_data(filter_breakout, filter_sector, filter_kmi):
