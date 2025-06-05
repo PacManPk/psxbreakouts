@@ -14,11 +14,11 @@ from openpyxl.chart import PieChart, Reference
 from openpyxl.chart.label import DataLabelList
 from io import StringIO
 
-=== Configuration ===
+### Configuration ===
 
 PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical' PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv' KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB' MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN', '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC'] MAX_DAYS_BACK = 5
 
-=== Core Functions (placeholders) ===
+# Core Functions (placeholders) ===
 
 def get_symbols_data(): return pd.read_csv(PSX_STOCK_DATA_URL)
 
@@ -28,7 +28,7 @@ def calculate_breakout_stats(today_df, prev_day_df, prev_week_df, prev_month_df,
 
 def save_to_excel(df, date_str): temp_dir = tempfile.mkdtemp() file_path = os.path.join(temp_dir, f"PSX_Breakout_{date_str}.xlsx") df.to_excel(file_path, index=False) return file_path
 
-=== Gradio UI ===
+#=== Gradio UI ===
 
 def psx_breakout_interface(): with gr.Blocks(title="PSX Breakout Scanner") as demo: gr.Markdown(""" # 📈 PSX Breakout Scanner Analyze daily, weekly, and monthly breakout signals for PSX-listed stocks. """)
 
@@ -116,7 +116,7 @@ latest_df = gr.State()
 
 return demo
 
-=== Launch App ===
+#=== Launch App ===
 
 if name == "main": demo = psx_breakout_interface() demo.launch()
 
