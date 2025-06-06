@@ -1,7 +1,6 @@
 import gradio as gr
+import requests
 import pandas as pd
-import aiohttp
-import asyncio
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import tempfile
@@ -11,6 +10,7 @@ from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 
 # Configuration
@@ -25,56 +25,57 @@ CIRCUIT_BREAKER_RS_LIMIT = 1
 # Global variable to store the loaded data
 loaded_data = None
 
-async def fetch_url(session, url):
-    """Fetch data from a URL asynchronously."""
+def fetch_url(url):
+    """Fetch data from a URL."""
     try:
-        async with session.get(url, timeout=10) as response:
-            return await response.text()
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.text
     except Exception as e:
         print(f"Error fetching data from {url}: {e}")
         return None
 
-async def get_symbols_data_async():
-    """Load symbol data from both PSX stock data and KMI compliance files asynchronously."""
-    async with aiohttp.ClientSession() as session:
-        psx_response_future = asyncio.create_task(fetch_url(session, PSX_STOCK_DATA_URL))
-        kmi_response_future = asyncio.create_task(fetch_url(session, KMI_SYMBOLS_FILE))
+def get_symbols_data():
+    """Load symbol data from both PSX stock data and KMI compliance files"""
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            psx_response_future = executor.submit(fetch_url, PSX_STOCK_DATA_URL)
+            kmi_response_future = executor.submit(fetch_url, KMI_SYMBOLS_FILE)
 
-        psx_response_text = await psx_response_future
-        kmi_response_text = await kmi_response_future
+            psx_response_text = psx_response_future.result()
+            kmi_response_text = kmi_response_future.result()
 
-    if not psx_response_text or not kmi_response_text:
+        if not psx_response_text or not kmi_response_text:
+            return {}
+
+        psx_df = pd.read_csv(StringIO(psx_response_text))
+        kmi_df = pd.read_csv(StringIO(kmi_response_text))
+
+        psx_required = ['Symbol', 'Company Name', 'Sector']
+        for col in psx_required:
+            if col not in psx_df.columns:
+                raise ValueError(f"Missing column: {col}")
+
+        kmi_symbols = set()
+        if 'Symbol' in kmi_df.columns:
+            kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
+
+        symbols_data = {
+            row['Symbol'].strip().upper(): {
+                'Company': row['Company Name'],
+                'Sector': row['Sector'],
+                'KMI': 'Yes' if row['Symbol'].strip().upper() in kmi_symbols else 'No'
+            }
+            for _, row in psx_df.iterrows()
+        }
+
+        return symbols_data
+    except Exception as e:
+        print(f"Error loading symbols data: {e}")
         return {}
 
-    psx_df = pd.read_csv(StringIO(psx_response_text))
-    kmi_df = pd.read_csv(StringIO(kmi_response_text))
-
-    psx_required = ['Symbol', 'Company Name', 'Sector']
-    for col in psx_required:
-        if col not in psx_df.columns:
-            raise ValueError(f"Missing column: {col}")
-
-    kmi_symbols = set()
-    if 'Symbol' in kmi_df.columns:
-        kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
-
-    symbols_data = {
-        row['Symbol'].strip().upper(): {
-            'Company': row['Company Name'],
-            'Sector': row['Sector'],
-            'KMI': 'Yes' if row['Symbol'].strip().upper() in kmi_symbols else 'No'
-        }
-        for _, row in psx_df.iterrows()
-    }
-
-    return symbols_data
-
-def get_symbols_data():
-    """Wrapper function to run async get_symbols_data_async."""
-    return asyncio.run(get_symbols_data_async())
-
 def fetch_market_data(date):
-    """Fetch market data from PSX historical page for a specific date."""
+    """Fetch market data from PSX historical page for a specific date"""
     try:
         date_str = date.strftime('%Y-%m-%d')
         response = requests.post(PSX_HISTORICAL_URL, data={'date': date_str}, timeout=30)
@@ -110,7 +111,7 @@ def fetch_market_data(date):
         return None, None
 
 def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data):
-    """Calculate breakout statuses using proper weekly/monthly periods."""
+    """Calculate breakout statuses using proper weekly/monthly periods"""
     results = []
 
     for _, today_row in today_data.iterrows():
@@ -234,7 +235,7 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
     return pd.DataFrame(results)
 
 def save_to_excel(df, report_date):
-    """Save the results to an Excel file with formatting."""
+    """Save the results to an Excel file with formatting"""
     try:
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             EXCEL_FILE = tmp.name
@@ -322,7 +323,7 @@ def save_to_excel(df, report_date):
         return None
 
 def get_counts(df, status_col):
-    """Count breakout statuses for visualization."""
+    """Count breakout statuses for visualization"""
     return {
         "Breakout": len(df[df[status_col].str.contains("▲▲")]),
         "Breakdown": len(df[df[status_col].str.contains("▼▼")]),
@@ -330,7 +331,7 @@ def get_counts(df, status_col):
     }
 
 def create_pie_chart(counts, title):
-    """Create Plotly pie chart."""
+    """Create Plotly pie chart"""
     df = pd.DataFrame({
         'Status': list(counts.keys()),
         'Count': list(counts.values())
@@ -339,7 +340,7 @@ def create_pie_chart(counts, title):
     return fig
 
 def highlight_status(val):
-    """Highlight status cells based on their value."""
+    """Highlight status cells based on their value"""
     if "▲▲" in str(val):
         return 'background-color: #008000; color: white'
     elif "▼▼" in str(val):
@@ -353,12 +354,12 @@ def highlight_status(val):
     return ''
 
 def load_data():
-    """Load and return the data."""
+    """Load and return the data"""
     global loaded_data
 
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     date_to_try = datetime.now()
     attempts = 0
@@ -374,12 +375,12 @@ def load_data():
 
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
 
@@ -419,6 +420,7 @@ def load_data():
 
     result_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
     loaded_data = result_df
+    excel_file = save_to_excel(result_df, today_date)
 
     daily_counts = get_counts(result_df, 'DAILY_STATUS')
     weekly_counts = get_counts(result_df, 'WEEKLY_STATUS')
@@ -437,6 +439,7 @@ def load_data():
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
     return (
+        excel_file,
         styled_df,
         fig_daily,
         fig_weekly,
@@ -447,17 +450,8 @@ def load_data():
         gr.update(choices=sectors, value="All")
     )
 
-def generate_excel_file():
-    """Generate and return the Excel file for download."""
-    global loaded_data
-    if loaded_data is None:
-        return None
-
-    excel_file = save_to_excel(loaded_data, datetime.now().strftime("%Y-%m-%d"))
-    return excel_file
-
 def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker):
-    """Filter data based on user selections."""
+    """Filter data based on user selections"""
     global loaded_data
 
     if loaded_data is None:
@@ -486,7 +480,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
     return styled_df
 
 def is_valid_symbol(symbol, symbols_data):
-    """Check if symbol is valid and not a futures contract."""
+    """Check if symbol is valid and not a futures contract"""
     try:
         symbol = symbol.strip().upper()
         return (symbol in symbols_data) and not any(month in symbol for month in MONTH_CODES)
@@ -494,7 +488,7 @@ def is_valid_symbol(symbol, symbols_data):
         return False
 
 def is_weekend(date):
-    """Check if date is weekend (Saturday/Sunday)."""
+    """Check if date is weekend (Saturday/Sunday)"""
     return date.weekday() >= 5
 
 # Gradio Interface
@@ -504,8 +498,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
 
     with gr.Row():
         run_btn = gr.Button("Run Analysis", variant="primary")
-        download_btn = gr.Button("Download Excel Report")
-        download = gr.File(label="Download Excel Report", visible=False)
+        download = gr.File(label="Download Excel Report")
 
     with gr.Row():
         filter_breakout = gr.Checkbox(label="Show only stocks with Daily, Weekly, and Monthly Breakouts")
@@ -535,6 +528,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     run_btn.click(
         fn=load_data,
         outputs=[
+            download,
             dataframe,
             daily_plot,
             weekly_plot,
@@ -544,11 +538,6 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
             monthly_table,
             filter_sector
         ]
-    )
-
-    download_btn.click(
-        fn=generate_excel_file,
-        outputs=download
     )
 
     filter_breakout.change(
