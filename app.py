@@ -359,7 +359,7 @@ def load_data():
 
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     date_to_try = datetime.now()
     attempts = 0
@@ -375,12 +375,12 @@ def load_data():
 
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None, None, None, gr.update(choices=["All"])
 
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
 
@@ -420,7 +420,6 @@ def load_data():
 
     result_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
     loaded_data = result_df
-    excel_file = save_to_excel(result_df, today_date)
 
     daily_counts = get_counts(result_df, 'DAILY_STATUS')
     weekly_counts = get_counts(result_df, 'WEEKLY_STATUS')
@@ -439,7 +438,6 @@ def load_data():
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
     return (
-        excel_file,
         styled_df,
         fig_daily,
         fig_weekly,
@@ -449,6 +447,15 @@ def load_data():
         monthly_table,
         gr.update(choices=sectors, value="All")
     )
+
+def generate_excel_file():
+    """Generate and return the Excel file for download."""
+    global loaded_data
+    if loaded_data is None:
+        return None
+
+    excel_file = save_to_excel(loaded_data, datetime.now().strftime("%Y-%m-%d"))
+    return excel_file
 
 def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker):
     """Filter data based on user selections"""
@@ -498,7 +505,8 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
 
     with gr.Row():
         run_btn = gr.Button("Run Analysis", variant="primary")
-        download = gr.File(label="Download Excel Report")
+        download_btn = gr.Button("Download Excel Report")
+        download = gr.File(label="Download Excel Report", visible=False)
 
     with gr.Row():
         filter_breakout = gr.Checkbox(label="Show only stocks with Daily, Weekly, and Monthly Breakouts")
@@ -528,7 +536,6 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     run_btn.click(
         fn=load_data,
         outputs=[
-            download,
             dataframe,
             daily_plot,
             weekly_plot,
@@ -538,6 +545,11 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
             monthly_table,
             filter_sector
         ]
+    )
+
+    download_btn.click(
+        fn=generate_excel_file,
+        outputs=download
     )
 
     filter_breakout.change(
