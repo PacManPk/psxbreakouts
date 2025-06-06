@@ -18,6 +18,7 @@ PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLY
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
 MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN', '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
+CIRCUIT_BREAKER_PERCENTAGE = 5  # Define the circuit breaker percentage
 
 # Global variable to store the loaded data
 loaded_data = None
@@ -108,6 +109,7 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
         daily_status = "N/A"
         weekly_status = "N/A"
         monthly_status = "N/A"
+        circuit_breaker_status = "No"
 
         try:
             today_close = float(today_row['CLOSE'].replace(',', '')) if today_row['CLOSE'] else 0
@@ -128,6 +130,7 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
             prev_day_row = prev_day_data[prev_day_data['SYMBOL'].str.upper() == symbol.upper()]
             if not prev_day_row.empty:
                 try:
+                    prev_day_close = float(prev_day_row['CLOSE'].iloc[0].replace(',', '')) if prev_day_row['CLOSE'].iloc[0] else 0
                     prev_day_high = float(prev_day_row['HIGH'].iloc[0].replace(',', '')) if prev_day_row['HIGH'].iloc[0] else "N/A"
                     prev_day_low = float(prev_day_row['LOW'].iloc[0].replace(',', '')) if prev_day_row['LOW'].iloc[0] else "N/A"
 
@@ -138,6 +141,14 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
                             daily_status = "▼▼ Daily Breakdown"
                         else:
                             daily_status = "– Daily Within Range"
+
+                    # Check for circuit breaker
+                    if prev_day_close > 0:
+                        price_change_percentage = ((today_close - prev_day_close) / prev_day_close) * 100
+                        if price_change_percentage > CIRCUIT_BREAKER_PERCENTAGE:
+                            circuit_breaker_status = "Upper Circuit Breaker"
+                        elif price_change_percentage < -CIRCUIT_BREAKER_PERCENTAGE:
+                            circuit_breaker_status = "Lower Circuit Breaker"
                 except Exception as e:
                     daily_status = "– Daily Data Error"
 
@@ -212,7 +223,8 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
             'MONTHLY_LOW': format_value(monthly_low) if isinstance(monthly_low, (int, float)) else monthly_low,
             'DAILY_STATUS': daily_status,
             'WEEKLY_STATUS': weekly_status,
-            'MONTHLY_STATUS': monthly_status
+            'MONTHLY_STATUS': monthly_status,
+            'CIRCUIT_BREAKER_STATUS': circuit_breaker_status
         })
 
     return pd.DataFrame(results)
@@ -230,12 +242,12 @@ def save_to_excel(df, report_date):
 
             formatted_date = datetime.strptime(report_date, "%Y-%m-%d").strftime("%d %B %Y")
 
-            worksheet.merge_cells('A1:S1')
+            worksheet.merge_cells('A1:T1')
             title_cell = worksheet.cell(row=1, column=1, value=f"📈 PSX Breakout Analysis - {formatted_date}")
             title_cell.font = Font(bold=True, size=14, color="1F4E78")
             title_cell.alignment = Alignment(horizontal='center')
 
-            worksheet.merge_cells('A2:S2')
+            worksheet.merge_cells('A2:T2')
             timestamp_cell = worksheet.cell(
                 row=2,
                 column=1,
@@ -248,7 +260,7 @@ def save_to_excel(df, report_date):
                 'SYMBOL', 'COMPANY', 'SECTOR', 'KMI_COMPLIANT', 'VOLUME',
                 'LDCP', 'OPEN', 'CLOSE', 'HIGH', 'LOW',
                 'PREV_DAY_HIGH', 'PREV_DAY_LOW', 'WEEKLY_HIGH', 'WEEKLY_LOW',
-                'MONTHLY_HIGH', 'MONTHLY_LOW', 'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'
+                'MONTHLY_HIGH', 'MONTHLY_LOW', 'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'
             ]
 
             header_font = Font(bold=True, color="FFFFFF")
@@ -264,14 +276,16 @@ def save_to_excel(df, report_date):
                 for col_idx, value in enumerate(row_data, 1):
                     worksheet.cell(row=row_idx, column=col_idx, value=value)
 
-            status_cols = {17: 'DAILY_STATUS', 18: 'WEEKLY_STATUS', 19: 'MONTHLY_STATUS'}
+            status_cols = {17: 'DAILY_STATUS', 18: 'WEEKLY_STATUS', 19: 'MONTHLY_STATUS', 20: 'CIRCUIT_BREAKER_STATUS'}
 
             cond_formatting = {
                 "▲▲": PatternFill(start_color="008000", fill_type="solid"),
                 "▲": PatternFill(start_color="92D050", fill_type="solid"),
                 "▼▼": PatternFill(start_color="FF0000", fill_type="solid"),
                 "▼": PatternFill(start_color="FFC7CE", fill_type="solid"),
-                "–": PatternFill(start_color="D9D9D9", fill_type="solid")
+                "–": PatternFill(start_color="D9D9D9", fill_type="solid"),
+                "Upper Circuit Breaker": PatternFill(start_color="FFD700", fill_type="solid"),
+                "Lower Circuit Breaker": PatternFill(start_color="A52A2A", fill_type="solid")
             }
 
             for col_num, col_name in status_cols.items():
@@ -286,7 +300,7 @@ def save_to_excel(df, report_date):
                 max_length = 0
                 column_letter = get_column_letter(column[0].column)
 
-                if column_letter in ['Q', 'R', 'S']:
+                if column_letter in ['Q', 'R', 'S', 'T']:
                     worksheet.column_dimensions[column_letter].width = 18
                     continue
 
@@ -338,6 +352,10 @@ def highlight_status(val):
         return 'background-color: #FF0000; color: white'
     elif "–" in str(val):
         return 'background-color: #D9D9D9; color: black'
+    elif "Upper Circuit Breaker" in str(val):
+        return 'background-color: #FFD700; color: black'
+    elif "Lower Circuit Breaker" in str(val):
+        return 'background-color: #A52A2A; color: white'
     return ''
 
 def load_data():
@@ -421,7 +439,7 @@ def load_data():
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
 
-    styled_df = result_df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'])
+    styled_df = result_df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
 
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
@@ -437,7 +455,7 @@ def load_data():
         gr.update(choices=sectors, value="All")
     )
 
-def filter_data(filter_breakout, filter_sector, filter_kmi):
+def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker):
     """Filter data based on user selections"""
     global loaded_data
 
@@ -457,7 +475,13 @@ def filter_data(filter_breakout, filter_sector, filter_kmi):
     if filter_kmi != "All":
         df = df[df['KMI_COMPLIANT'] == filter_kmi]
 
-    styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS'])
+    if filter_circuit_breaker != "All":
+        if filter_circuit_breaker == "Upper Circuit Breaker":
+            df = df[df['CIRCUIT_BREAKER_STATUS'] == "Upper Circuit Breaker"]
+        elif filter_circuit_breaker == "Lower Circuit Breaker":
+            df = df[df['CIRCUIT_BREAKER_STATUS'] == "Lower Circuit Breaker"]
+
+    styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
     return styled_df
 
 def is_valid_symbol(symbol, symbols_data):
@@ -485,6 +509,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         filter_breakout = gr.Checkbox(label="Show only stocks with Daily, Weekly, and Monthly Breakouts")
         filter_sector = gr.Dropdown(label="Filter by Sector", choices=["All"], value="All")
         filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All", "Yes", "No"], value="All")
+        filter_circuit_breaker = gr.Dropdown(label="Filter by Circuit Breaker", choices=["All", "Upper Circuit Breaker", "Lower Circuit Breaker"], value="All")
 
     with gr.Row():
         dataframe = gr.Dataframe(interactive=False, wrap=True)
@@ -522,19 +547,25 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
 
     filter_breakout.change(
         fn=filter_data,
-        inputs=[filter_breakout, filter_sector, filter_kmi],
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
         outputs=dataframe
     )
 
     filter_sector.change(
         fn=filter_data,
-        inputs=[filter_breakout, filter_sector, filter_kmi],
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
         outputs=dataframe
     )
 
     filter_kmi.change(
         fn=filter_data,
-        inputs=[filter_breakout, filter_sector, filter_kmi],
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
+        outputs=dataframe
+    )
+
+    filter_circuit_breaker.change(
+        fn=filter_data,
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
         outputs=dataframe
     )
 
