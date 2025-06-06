@@ -18,7 +18,8 @@ PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLY
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
 MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN', '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
-CIRCUIT_BREAKER_PERCENTAGE = 5  # Define the circuit breaker percentage
+CIRCUIT_BREAKER_PERCENTAGE = 7.5  # Define the circuit breaker percentage
+CIRCUIT_BREAKER_RS_LIMIT = 1  # Define the circuit breaker limit in Rs.
 
 # Global variable to store the loaded data
 loaded_data = None
@@ -144,10 +145,12 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
 
                     # Check for circuit breaker
                     if prev_day_close > 0:
-                        price_change_percentage = ((today_close - prev_day_close) / prev_day_close) * 100
-                        if price_change_percentage > CIRCUIT_BREAKER_PERCENTAGE:
+                        price_change = today_close - prev_day_close
+                        price_change_percentage = (price_change / prev_day_close) * 100
+                        circuit_breaker_limit = max(CIRCUIT_BREAKER_RS_LIMIT, prev_day_close * CIRCUIT_BREAKER_PERCENTAGE / 100)
+                        if price_change > circuit_breaker_limit:
                             circuit_breaker_status = "Upper Circuit Breaker"
-                        elif price_change_percentage < -CIRCUIT_BREAKER_PERCENTAGE:
+                        elif price_change < -circuit_breaker_limit:
                             circuit_breaker_status = "Lower Circuit Breaker"
                 except Exception as e:
                     daily_status = "– Daily Data Error"
