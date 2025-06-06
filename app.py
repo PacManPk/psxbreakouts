@@ -7,9 +7,10 @@ import tempfile
 import plotly.express as px
 from pytz import timezone
 from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill
-from openpyxl.chart import PieChart
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 
 # Configuration
@@ -18,40 +19,55 @@ PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLY
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
 MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN', '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
-CIRCUIT_BREAKER_PERCENTAGE = 7.5  # Define the circuit breaker percentage
-CIRCUIT_BREAKER_RS_LIMIT = 1  # Define the circuit breaker limit in Rs.
+CIRCUIT_BREAKER_PERCENTAGE = 7.5
+CIRCUIT_BREAKER_RS_LIMIT = 1
 
 # Global variable to store the loaded data
 loaded_data = None
 
+def fetch_url(url):
+    """Fetch data from a URL."""
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        print(f"Error fetching data from {url}: {e}")
+        return None
+
 def get_symbols_data():
     """Load symbol data from both PSX stock data and KMI compliance files"""
     try:
-        psx_response = requests.get(PSX_STOCK_DATA_URL)
-        psx_response.raise_for_status()
-        psx_df = pd.read_csv(StringIO(psx_response.text))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            psx_response_future = executor.submit(fetch_url, PSX_STOCK_DATA_URL)
+            kmi_response_future = executor.submit(fetch_url, KMI_SYMBOLS_FILE)
+
+            psx_response_text = psx_response_future.result()
+            kmi_response_text = kmi_response_future.result()
+
+        if not psx_response_text or not kmi_response_text:
+            return {}
+
+        psx_df = pd.read_csv(StringIO(psx_response_text))
+        kmi_df = pd.read_csv(StringIO(kmi_response_text))
 
         psx_required = ['Symbol', 'Company Name', 'Sector']
         for col in psx_required:
             if col not in psx_df.columns:
                 raise ValueError(f"Missing column: {col}")
 
-        kmi_response = requests.get(KMI_SYMBOLS_FILE)
-        kmi_response.raise_for_status()
-        kmi_df = pd.read_csv(StringIO(kmi_response.text))
-
-        kmi_symbols = []
+        kmi_symbols = set()
         if 'Symbol' in kmi_df.columns:
-            kmi_symbols = kmi_df['Symbol'].str.strip().str.upper().tolist()
+            kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
 
-        symbols_data = {}
-        for _, row in psx_df.iterrows():
-            symbol = row['Symbol'].strip().upper()
-            symbols_data[symbol] = {
+        symbols_data = {
+            row['Symbol'].strip().upper(): {
                 'Company': row['Company Name'],
                 'Sector': row['Sector'],
-                'KMI': 'Yes' if symbol in kmi_symbols else 'No'
+                'KMI': 'Yes' if row['Symbol'].strip().upper() in kmi_symbols else 'No'
             }
+            for _, row in psx_df.iterrows()
+        }
 
         return symbols_data
     except Exception as e:
@@ -59,7 +75,7 @@ def get_symbols_data():
         return {}
 
 def fetch_market_data(date):
-    """Fetch market data from PSX historical page for specific date"""
+    """Fetch market data from PSX historical page for a specific date"""
     try:
         date_str = date.strftime('%Y-%m-%d')
         response = requests.post(PSX_HISTORICAL_URL, data={'date': date_str}, timeout=30)
@@ -105,27 +121,19 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
         sector = company_info.get('Sector', 'N/A')
         kmi_status = company_info.get('KMI', 'No')
 
-        today_close = today_high = today_low = today_ldcp = volume = 0
-        prev_day_high = prev_day_low = weekly_high = weekly_low = monthly_high = monthly_low = "N/A"
-        daily_status = "N/A"
-        weekly_status = "N/A"
-        monthly_status = "N/A"
-        circuit_breaker_status = "No"
-
         try:
             today_close = float(today_row['CLOSE'].replace(',', '')) if today_row['CLOSE'] else 0
             today_high = float(today_row['HIGH'].replace(',', '')) if today_row['HIGH'] else 0
             today_low = float(today_row['LOW'].replace(',', '')) if today_row['LOW'] else 0
             today_ldcp = float(today_row['LDCP'].replace(',', '')) if today_row['LDCP'] else 0
-
-            if today_row['VOLUME'] and str(today_row['VOLUME']).strip():
-                volume = float(str(today_row['VOLUME']).replace(',', ''))
-                volume_str = f"{volume:,.0f}"
-            else:
-                volume_str = "0"
+            volume = float(str(today_row['VOLUME']).replace(',', '')) if today_row['VOLUME'] and str(today_row['VOLUME']).strip() else 0
+            volume_str = f"{volume:,.0f}"
         except Exception as e:
             print(f"Error processing numerical values for {symbol}: {str(e)}")
             continue
+
+        daily_status = weekly_status = monthly_status = circuit_breaker_status = "N/A"
+        prev_day_high = prev_day_low = weekly_high = weekly_low = monthly_high = monthly_low = "N/A"
 
         if prev_day_data is not None:
             prev_day_row = prev_day_data[prev_day_data['SYMBOL'].str.upper() == symbol.upper()]
@@ -143,10 +151,8 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
                         else:
                             daily_status = "– Daily Within Range"
 
-                    # Check for circuit breaker
                     if prev_day_close > 0:
                         price_change = today_close - prev_day_close
-                        price_change_percentage = (price_change / prev_day_close) * 100
                         circuit_breaker_limit = max(CIRCUIT_BREAKER_RS_LIMIT, prev_day_close * CIRCUIT_BREAKER_PERCENTAGE / 100)
                         if price_change > circuit_breaker_limit:
                             circuit_breaker_status = "Upper Circuit Breaker"
@@ -159,10 +165,8 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
             symbol_week_data = prev_week_data[prev_week_data['SYMBOL'].str.upper() == symbol.upper()]
             if not symbol_week_data.empty:
                 try:
-                    weekly_high = symbol_week_data['HIGH'].apply(
-                        lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).max()
-                    weekly_low = symbol_week_data['LOW'].apply(
-                        lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).min()
+                    weekly_high = symbol_week_data['HIGH'].apply(lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).max()
+                    weekly_low = symbol_week_data['LOW'].apply(lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).min()
 
                     if today_close > weekly_high:
                         weekly_status = "▲▲ Weekly Breakout"
@@ -177,10 +181,8 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
             symbol_month_data = prev_month_data[prev_month_data['SYMBOL'].str.upper() == symbol.upper()]
             if not symbol_month_data.empty:
                 try:
-                    monthly_high = symbol_month_data['HIGH'].apply(
-                        lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).max()
-                    monthly_low = symbol_month_data['LOW'].apply(
-                        lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).min()
+                    monthly_high = symbol_month_data['HIGH'].apply(lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).max()
+                    monthly_low = symbol_month_data['LOW'].apply(lambda x: float(x.replace(',', '')) if str(x) != 'nan' else 0).min()
 
                     if today_close > monthly_high:
                         monthly_status = "▲▲ Monthly Breakout"
@@ -241,21 +243,17 @@ def save_to_excel(df, report_date):
             worksheet = workbook.active
             worksheet.title = 'Breakout Analysis'
 
-            worksheet.delete_rows(1, worksheet.max_row)
-
             formatted_date = datetime.strptime(report_date, "%Y-%m-%d").strftime("%d %B %Y")
 
             worksheet.merge_cells('A1:T1')
-            title_cell = worksheet.cell(row=1, column=1, value=f"📈 PSX Breakout Analysis - {formatted_date}")
+            title_cell = worksheet['A1']
+            title_cell.value = f"📈 PSX Breakout Analysis - {formatted_date}"
             title_cell.font = Font(bold=True, size=14, color="1F4E78")
             title_cell.alignment = Alignment(horizontal='center')
 
             worksheet.merge_cells('A2:T2')
-            timestamp_cell = worksheet.cell(
-                row=2,
-                column=1,
-                value=f"⏰ Generated: {datetime.now(timezone('Asia/Karachi')).strftime('%d %B %Y %H:%M:%S')} (PKT)"
-            )
+            timestamp_cell = worksheet['A2']
+            timestamp_cell.value = f"⏰ Generated: {datetime.now(timezone('Asia/Karachi')).strftime('%d %B %Y %H:%M:%S')} (PKT)"
             timestamp_cell.font = Font(size=12, italic=True, color="404040")
             timestamp_cell.alignment = Alignment(horizontal='center')
 
@@ -266,18 +264,14 @@ def save_to_excel(df, report_date):
                 'MONTHLY_HIGH', 'MONTHLY_LOW', 'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'
             ]
 
-            header_font = Font(bold=True, color="FFFFFF")
-            header_fill = PatternFill(start_color="4F81BD", fill_type="solid")
-
             for col_num, header in enumerate(headers, 1):
                 cell = worksheet.cell(row=3, column=col_num, value=header)
-                cell.font = header_font
-                cell.fill = header_fill
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill(start_color="4F81BD", fill_type="solid")
                 cell.alignment = Alignment(horizontal='center')
 
-            for row_idx, row_data in enumerate(df.values, 4):
-                for col_idx, value in enumerate(row_data, 1):
-                    worksheet.cell(row=row_idx, column=col_idx, value=value)
+            for row in dataframe_to_rows(df, index=False, header=False):
+                worksheet.append(row)
 
             status_cols = {17: 'DAILY_STATUS', 18: 'WEEKLY_STATUS', 19: 'MONTHLY_STATUS', 20: 'CIRCUIT_BREAKER_STATUS'}
 
@@ -302,11 +296,9 @@ def save_to_excel(df, report_date):
             for column in worksheet.columns:
                 max_length = 0
                 column_letter = get_column_letter(column[0].column)
-
                 if column_letter in ['Q', 'R', 'S', 'T']:
                     worksheet.column_dimensions[column_letter].width = 18
                     continue
-
                 for cell in column:
                     try:
                         if len(str(cell.value)) > max_length:
