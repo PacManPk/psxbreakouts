@@ -506,8 +506,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All", "Yes", "No"], value="All")
         filter_circuit_breaker = gr.Dropdown(label="Filter by Circuit Breaker", choices=["All", "Upper Circuit Breaker", "Lower Circuit Breaker"], value="All")
 
-    with gr.Row():
-        dataframe = gr.Dataframe(interactive=False, wrap=True)
+    dataframe_html = gr.HTML()
 
     with gr.Row():
         with gr.Column():
@@ -525,11 +524,41 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
             monthly_plot = gr.Plot()
             monthly_table = gr.Dataframe(headers=["Status", "Count"])
 
+    def display_dataframe(df):
+        html = """
+        <div style="width:100%; overflow-x:auto;">
+            <div style="display:flex;">
+                <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 1;">
+                    {first_column}
+                </div>
+                <div style="flex: auto; overflow-x: auto;">
+                    <table style="width:100%; border-collapse: collapse;">
+                        {other_columns}
+                    </table>
+                </div>
+            </div>
+        </div>
+        <script>
+            document.querySelectorAll('table')[0].style.width = 'auto';
+        </script>
+        """
+        first_column = "<table style='width:150px; border-collapse: collapse;'><tr><th style='background-color: #4F81BD; color: white;'>SYMBOL</th></tr>"
+        other_columns = "<tr>"
+
+        for idx, row in df.iterrows():
+            first_column += f"<tr><td style='background: white;'>{row['SYMBOL']}</td></tr>"
+            other_columns += "<td style='background: white;'>" + "</td><td style='background: white;'>".join(str(row[col]) for col in df.columns[1:]) + "</td></tr>"
+
+        first_column += "</table>"
+        other_columns = "<tr><th style='background-color: #4F81BD; color: white;'>" + "</th><th style='background-color: #4F81BD; color: white;'>".join(df.columns[1:]) + "</th></tr>" + other_columns + "</table>"
+
+        return html.format(first_column=first_column, other_columns=other_columns)
+
     run_btn.click(
         fn=load_data,
         outputs=[
             download,
-            dataframe,
+            dataframe_html,
             daily_plot,
             weekly_plot,
             monthly_plot,
@@ -543,25 +572,25 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     filter_breakout.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
     filter_sector.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
     filter_kmi.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
     filter_circuit_breaker.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
 if __name__ == "__main__":
