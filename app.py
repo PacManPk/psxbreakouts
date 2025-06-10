@@ -434,7 +434,7 @@ def load_data():
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
 
-    styled_df = result_df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
+    styled_df = result_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
 
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
@@ -476,7 +476,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
         elif filter_circuit_breaker == "Lower Circuit Breaker":
             df = df[df['CIRCUIT_BREAKER_STATUS'] == "Lower Circuit Breaker"]
 
-    styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
+    styled_df = df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
     return styled_df
 
 def is_valid_symbol(symbol, symbols_data):
@@ -490,6 +490,32 @@ def is_valid_symbol(symbol, symbols_data):
 def is_weekend(date):
     """Check if date is weekend (Saturday/Sunday)"""
     return date.weekday() >= 5
+
+def display_dataframe(df):
+    """Convert DataFrame to HTML with frozen first column."""
+    df_html = df.to_html(escape=False, index=False)
+    html = f"""
+    <div style="width:100%; height:500px; overflow:auto;">
+        <table style="border-collapse: collapse; width: 100%;">
+            {df_html}
+        </table>
+    </div>
+    <style>
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+        }}
+        th, td {{
+            border: 1px solid black;
+            padding: 8px;
+            text-align: left;
+        }}
+        th {{
+            background-color: #f2f2f2;
+        }}
+    </style>
+    """
+    return html
 
 # Gradio Interface
 with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
@@ -523,36 +549,6 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
             gr.Markdown("### Monthly Analysis")
             monthly_plot = gr.Plot()
             monthly_table = gr.Dataframe(headers=["Status", "Count"])
-
-    def display_dataframe(df):
-        html = """
-        <div style="width:100%; overflow-x:auto;">
-            <div style="display:flex;">
-                <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 1;">
-                    {first_column}
-                </div>
-                <div style="flex: auto; overflow-x: auto;">
-                    <table style="width:100%; border-collapse: collapse;">
-                        {other_columns}
-                    </table>
-                </div>
-            </div>
-        </div>
-        <script>
-            document.querySelectorAll('table')[0].style.width = 'auto';
-        </script>
-        """
-        first_column = "<table style='width:150px; border-collapse: collapse;'><tr><th style='background-color: #4F81BD; color: white;'>SYMBOL</th></tr>"
-        other_columns = "<tr>"
-
-        for idx, row in df.iterrows():
-            first_column += f"<tr><td style='background: white;'>{row['SYMBOL']}</td></tr>"
-            other_columns += "<td style='background: white;'>" + "</td><td style='background: white;'>".join(str(row[col]) for col in df.columns[1:]) + "</td></tr>"
-
-        first_column += "</table>"
-        other_columns = "<tr><th style='background-color: #4F81BD; color: white;'>" + "</th><th style='background-color: #4F81BD; color: white;'>".join(df.columns[1:]) + "</th></tr>" + other_columns + "</table>"
-
-        return html.format(first_column=first_column, other_columns=other_columns)
 
     run_btn.click(
         fn=load_data,
