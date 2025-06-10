@@ -455,7 +455,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
     global loaded_data
 
     if loaded_data is None:
-        return gr.Dataframe()
+        return gr.DataFrame()
 
     df = loaded_data.copy()
 
@@ -491,32 +491,6 @@ def is_weekend(date):
     """Check if date is weekend (Saturday/Sunday)"""
     return date.weekday() >= 5
 
-def display_dataframe(df):
-    """Convert DataFrame to HTML with frozen first column."""
-    df_html = df.to_html(escape=False, index=False)
-    html = f"""
-    <div style="width:100%; height:500px; overflow:auto;">
-        <table style="border-collapse: collapse; width: 100%;">
-            {df_html}
-        </table>
-    </div>
-    <style>
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-        }}
-        th, td {{
-            border: 1px solid black;
-            padding: 8px;
-            text-align: left;
-        }}
-        th {{
-            background-color: #f2f2f2;
-        }}
-    </style>
-    """
-    return html
-
 # Gradio Interface
 with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     gr.Markdown("# 📈 PSX Breakout Scanner")
@@ -532,29 +506,29 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All", "Yes", "No"], value="All")
         filter_circuit_breaker = gr.Dropdown(label="Filter by Circuit Breaker", choices=["All", "Upper Circuit Breaker", "Lower Circuit Breaker"], value="All")
 
-    dataframe_html = gr.HTML()
+    dataframe = gr.DataFrame(height=400)
 
     with gr.Row():
         with gr.Column():
             gr.Markdown("### Daily Analysis")
             daily_plot = gr.Plot()
-            daily_table = gr.Dataframe(headers=["Status", "Count"])
+            daily_table = gr.DataFrame(headers=["Status", "Count"])
 
         with gr.Column():
             gr.Markdown("### Weekly Analysis")
             weekly_plot = gr.Plot()
-            weekly_table = gr.Dataframe(headers=["Status", "Count"])
+            weekly_table = gr.DataFrame(headers=["Status", "Count"])
 
         with gr.Column():
             gr.Markdown("### Monthly Analysis")
             monthly_plot = gr.Plot()
-            monthly_table = gr.Dataframe(headers=["Status", "Count"])
+            monthly_table = gr.DataFrame(headers=["Status", "Count"])
 
     run_btn.click(
         fn=load_data,
         outputs=[
             download,
-            dataframe_html,
+            dataframe,
             daily_plot,
             weekly_plot,
             monthly_plot,
@@ -568,25 +542,25 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     filter_breakout.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
     filter_sector.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
     filter_kmi.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
     filter_circuit_breaker.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
 if __name__ == "__main__":
