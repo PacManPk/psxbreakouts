@@ -434,7 +434,7 @@ def load_data():
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
 
-    styled_df = result_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
+    styled_df = result_df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
 
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
@@ -455,7 +455,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
     global loaded_data
 
     if loaded_data is None:
-        return gr.DataFrame()
+        return gr.Dataframe()
 
     df = loaded_data.copy()
 
@@ -476,7 +476,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
         elif filter_circuit_breaker == "Lower Circuit Breaker":
             df = df[df['CIRCUIT_BREAKER_STATUS'] == "Lower Circuit Breaker"]
 
-    styled_df = df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
+    styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
     return styled_df
 
 def is_valid_symbol(symbol, symbols_data):
@@ -506,23 +506,24 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All", "Yes", "No"], value="All")
         filter_circuit_breaker = gr.Dropdown(label="Filter by Circuit Breaker", choices=["All", "Upper Circuit Breaker", "Lower Circuit Breaker"], value="All")
 
-    dataframe = gr.DataFrame(height=400)
+    with gr.Row():
+        dataframe = gr.Dataframe(interactive=False, wrap=True)
 
     with gr.Row():
         with gr.Column():
             gr.Markdown("### Daily Analysis")
             daily_plot = gr.Plot()
-            daily_table = gr.DataFrame(headers=["Status", "Count"])
+            daily_table = gr.Dataframe(headers=["Status", "Count"])
 
         with gr.Column():
             gr.Markdown("### Weekly Analysis")
             weekly_plot = gr.Plot()
-            weekly_table = gr.DataFrame(headers=["Status", "Count"])
+            weekly_table = gr.Dataframe(headers=["Status", "Count"])
 
         with gr.Column():
             gr.Markdown("### Monthly Analysis")
             monthly_plot = gr.Plot()
-            monthly_table = gr.DataFrame(headers=["Status", "Count"])
+            monthly_table = gr.Dataframe(headers=["Status", "Count"])
 
     run_btn.click(
         fn=load_data,
