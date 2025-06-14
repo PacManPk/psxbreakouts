@@ -438,9 +438,47 @@ def load_data():
 
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
+    # Convert the DataFrame to HTML with frozen first column and row
+    df_html = styled_df.to_html(escape=False)
+    html = f"""
+    <div style="width:100%; overflow:auto; height: 400px;">
+        <div style="display:flex; position: relative;">
+            <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 2;">
+                <table style="width:150px; border-collapse: collapse;">
+                    <thead>
+                        <tr>
+                            <th style="background-color: #f2f2f2; position: sticky; left: 0; top: 0; z-index: 3;">{result_df.columns[0]}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join(f'<tr><td style="background: white; position: sticky; left: 0;">{row}</td></tr>' for row in result_df[result_df.columns[0]])}
+                    </tbody>
+                </table>
+            </div>
+            <div style="flex: auto; overflow: auto; position: relative;">
+                <table style="border-collapse: collapse; width: 100%;">
+                    <thead>
+                        <tr>
+                            {''.join(f'<th style="background-color: #f2f2f2; position: sticky; top: 0; z-index: 2;">{col}</th>' for col in result_df.columns[1:])}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {styled_df.drop(columns=[result_df.columns[0]]).to_html(escape=False, index=False)[len('<table border="1" class="dataframe">\n  <thead>\n    <tr style="text-align: right;">\n'):-len('  </tbody>\n</table>')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <style>
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid black; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+    </style>
+    """
+
     return (
         excel_file,
-        styled_df,
+        gr.HTML(html),
         fig_daily,
         fig_weekly,
         fig_monthly,
@@ -482,16 +520,16 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
 
     styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
 
-    # Convert the DataFrame to HTML with frozen first column
+    # Convert the DataFrame to HTML with frozen first column and row
     df_html = styled_df.to_html(escape=False)
     html = f"""
-    <div style="width:100%; overflow-x:auto;">
-        <div style="display:flex;">
-            <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 1;">
+    <div style="width:100%; overflow:auto; height: 400px;">
+        <div style="display:flex; position: relative;">
+            <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 2;">
                 <table style="width:150px; border-collapse: collapse;">
                     <thead>
                         <tr>
-                            <th style="background-color: #f2f2f2; position: sticky; left: 0; z-index: 1;">{df.columns[0]}</th>
+                            <th style="background-color: #f2f2f2; position: sticky; left: 0; top: 0; z-index: 3;">{df.columns[0]}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -499,9 +537,16 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
                     </tbody>
                 </table>
             </div>
-            <div style="flex: auto; overflow-x: auto;">
+            <div style="flex: auto; overflow: auto; position: relative;">
                 <table style="border-collapse: collapse; width: 100%;">
-                    {df.drop(columns=[df.columns[0]]).to_html(escape=False, index=False)}
+                    <thead>
+                        <tr>
+                            {''.join(f'<th style="background-color: #f2f2f2; position: sticky; top: 0; z-index: 2;">{col}</th>' for col in df.columns[1:])}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {styled_df.drop(columns=[df.columns[0]]).to_html(escape=False, index=False)[len('<table border="1" class="dataframe">\n  <thead>\n    <tr style="text-align: right;">\n'):-len('  </tbody>\n</table>')}
+                    </tbody>
                 </table>
             </div>
         </div>
