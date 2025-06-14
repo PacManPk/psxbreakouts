@@ -439,7 +439,6 @@ def load_data():
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
     # Convert the DataFrame to HTML with frozen first column and row
-    df_html = styled_df.to_html(escape=False)
     html = f"""
     <div style="width:100%; overflow:auto; height: 400px;">
         <div style="display:flex; position: relative;">
@@ -463,7 +462,7 @@ def load_data():
                         </tr>
                     </thead>
                     <tbody>
-                        {styled_df.drop(columns=[result_df.columns[0]]).to_html(escape=False, index=False)[len('<table border="1" class="dataframe">\n  <thead>\n    <tr style="text-align: right;">\n'):-len('  </tbody>\n</table>')}
+                        {''.join(f'<tr>{"".join(f"<td>{row[col]}</td>" for col in result_df.columns[1:])}</tr>' for _, row in result_df.iterrows())}
                     </tbody>
                 </table>
             </div>
@@ -521,7 +520,6 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
     styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
 
     # Convert the DataFrame to HTML with frozen first column and row
-    df_html = styled_df.to_html(escape=False)
     html = f"""
     <div style="width:100%; overflow:auto; height: 400px;">
         <div style="display:flex; position: relative;">
@@ -545,7 +543,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
                         </tr>
                     </thead>
                     <tbody>
-                        {styled_df.drop(columns=[df.columns[0]]).to_html(escape=False, index=False)[len('<table border="1" class="dataframe">\n  <thead>\n    <tr style="text-align: right;">\n'):-len('  </tbody>\n</table>')}
+                        {''.join(f'<tr>{"".join(f"<td>{row[col]}</td>" for col in df.columns[1:])}</tr>' for _, row in df.iterrows())}
                     </tbody>
                 </table>
             </div>
