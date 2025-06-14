@@ -450,7 +450,7 @@ def load_data():
         gr.update(choices=sectors, value="All")
     )
 
-def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker):
+def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols):
     """Filter data based on user selections"""
     global loaded_data
 
@@ -475,6 +475,10 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
             df = df[df['CIRCUIT_BREAKER_STATUS'] == "Upper Circuit Breaker"]
         elif filter_circuit_breaker == "Lower Circuit Breaker":
             df = df[df['CIRCUIT_BREAKER_STATUS'] == "Lower Circuit Breaker"]
+
+    if filter_symbols:
+        symbols = [symbol.strip().upper() for symbol in filter_symbols.split(',')]
+        df = df[df['SYMBOL'].isin(symbols)]
 
     styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
     return styled_df
@@ -505,9 +509,10 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         filter_sector = gr.Dropdown(label="Filter by Sector", choices=["All"], value="All")
         filter_kmi = gr.Dropdown(label="Filter by Shariah Compliance", choices=["All", "Yes", "No"], value="All")
         filter_circuit_breaker = gr.Dropdown(label="Filter by Circuit Breaker", choices=["All", "Upper Circuit Breaker", "Lower Circuit Breaker"], value="All")
+        filter_symbols = gr.Textbox(label="Filter by Symbols (comma-separated)", placeholder="e.g., SYM1, SYM2")
 
     with gr.Row():
-        dataframe = gr.Dataframe(interactive=False, wrap=True)
+        dataframe = gr.DataFrame(interactive=False, wrap=True)
 
     with gr.Row():
         with gr.Column():
@@ -542,25 +547,31 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
 
     filter_breakout.change(
         fn=filter_data,
-        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
 
     filter_sector.change(
         fn=filter_data,
-        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
 
     filter_kmi.change(
         fn=filter_data,
-        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
 
     filter_circuit_breaker.change(
         fn=filter_data,
-        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker],
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
+        outputs=dataframe
+    )
+
+    filter_symbols.change(
+        fn=filter_data,
+        inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
 
