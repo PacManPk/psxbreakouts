@@ -696,3 +696,4 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
 
 if __name__ == "__main__":
     app.launch()
+
