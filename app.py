@@ -473,6 +473,17 @@ def load_data():
         th, td {{ border: 1px solid black; padding: 8px; text-align: left; }}
         th {{ background-color: #f2f2f2; }}
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {{
+            const rows = document.querySelectorAll('tr');
+            rows.forEach(row => {{
+                row.addEventListener('click', function() {{
+                    rows.forEach(r => r.style.backgroundColor = '');
+                    this.style.backgroundColor = 'yellow';
+                }});
+            }});
+        }});
+    </script>
     """
 
     return (
@@ -554,6 +565,17 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
         th, td {{ border: 1px solid black; padding: 8px; text-align: left; }}
         th {{ background-color: #f2f2f2; }}
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {{
+            const rows = document.querySelectorAll('tr');
+            rows.forEach(row => {{
+                row.addEventListener('click', function() {{
+                    rows.forEach(r => r.style.backgroundColor = '');
+                    this.style.backgroundColor = 'yellow';
+                }});
+            }});
+        }});
+    </script>
     """
     return gr.HTML(html)
 
