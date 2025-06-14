@@ -455,7 +455,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
     global loaded_data
 
     if loaded_data is None:
-        return gr.DataFrame()
+        return gr.HTML("No data available")
 
     df = loaded_data.copy()
 
@@ -481,7 +481,38 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
         df = df[df['SYMBOL'].isin(symbols)]
 
     styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
-    return styled_df
+
+    # Convert the DataFrame to HTML with frozen first column
+    df_html = styled_df.to_html(escape=False)
+    html = f"""
+    <div style="width:100%; overflow-x:auto;">
+        <div style="display:flex;">
+            <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 1;">
+                <table style="width:150px; border-collapse: collapse;">
+                    <thead>
+                        <tr>
+                            <th style="background-color: #f2f2f2; position: sticky; left: 0; z-index: 1;">{df.columns[0]}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join(f'<tr><td style="background: white; position: sticky; left: 0;">{row}</td></tr>' for row in df[df.columns[0]])}
+                    </tbody>
+                </table>
+            </div>
+            <div style="flex: auto; overflow-x: auto;">
+                <table style="border-collapse: collapse; width: 100%;">
+                    {df.drop(columns=[df.columns[0]]).to_html(escape=False, index=False)}
+                </table>
+            </div>
+        </div>
+    </div>
+    <style>
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid black; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+    </style>
+    """
+    return gr.HTML(html)
 
 def is_valid_symbol(symbol, symbols_data):
     """Check if symbol is valid and not a futures contract"""
@@ -511,7 +542,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         filter_circuit_breaker = gr.Dropdown(label="Filter by Circuit Breaker", choices=["All", "Upper Circuit Breaker", "Lower Circuit Breaker"], value="All")
         filter_symbols = gr.Textbox(label="Filter by Symbols (comma-separated)", placeholder="e.g., SYM1, SYM2")
 
-    dataframe = gr.DataFrame(interactive=False, wrap=True)
+    dataframe_html = gr.HTML()
 
     with gr.Row():
         with gr.Column():
@@ -533,7 +564,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         fn=load_data,
         outputs=[
             download,
-            dataframe,
+            dataframe_html,
             daily_plot,
             weekly_plot,
             monthly_plot,
@@ -547,31 +578,31 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     filter_breakout.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
     filter_sector.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
     filter_kmi.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
     filter_circuit_breaker.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
     filter_symbols.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe
+        outputs=dataframe_html
     )
 
 if __name__ == "__main__":
