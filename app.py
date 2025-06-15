@@ -110,6 +110,19 @@ def fetch_market_data(date):
         print(f"Error fetching data: {str(e)}")
         return None, None
 
+def calculate_resistance_support(data):
+    """Calculate resistance and support levels based on recent highs and lows"""
+    if data is None or data.empty:
+        return None, None
+
+    highs = data['HIGH'].apply(lambda x: float(x.replace(',', '')) if x else 0).sort_values(ascending=False)
+    lows = data['LOW'].apply(lambda x: float(x.replace(',', '')) if x else 0).sort_values(ascending=True)
+
+    resistance_levels = highs.head(3).tolist()
+    support_levels = lows.head(3).tolist()
+
+    return resistance_levels, support_levels
+
 def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data):
     """Calculate breakout statuses using proper weekly/monthly periods"""
     results = []
@@ -134,6 +147,8 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
 
         daily_status = weekly_status = monthly_status = circuit_breaker_status = "N/A"
         prev_day_high = prev_day_low = weekly_high = weekly_low = monthly_high = monthly_low = "N/A"
+
+        resistance_levels, support_levels = calculate_resistance_support(prev_month_data)
 
         if prev_day_data is not None:
             prev_day_row = prev_day_data[prev_day_data['SYMBOL'].str.upper() == symbol.upper()]
@@ -229,7 +244,9 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
             'DAILY_STATUS': daily_status,
             'WEEKLY_STATUS': weekly_status,
             'MONTHLY_STATUS': monthly_status,
-            'CIRCUIT_BREAKER_STATUS': circuit_breaker_status
+            'CIRCUIT_BREAKER_STATUS': circuit_breaker_status,
+            'RESISTANCE_LEVELS': ', '.join(map(format_value, resistance_levels)) if resistance_levels else 'N/A',
+            'SUPPORT_LEVELS': ', '.join(map(format_value, support_levels)) if support_levels else 'N/A'
         })
 
     return pd.DataFrame(results)
@@ -245,13 +262,13 @@ def save_to_excel(df, report_date):
 
             formatted_date = datetime.strptime(report_date, "%Y-%m-%d").strftime("%d %B %Y")
 
-            worksheet.merge_cells('A1:T1')
+            worksheet.merge_cells('A1:V1')
             title_cell = worksheet['A1']
             title_cell.value = f"📈 PSX Breakout Analysis - {formatted_date}"
             title_cell.font = Font(bold=True, size=14, color="1F4E78")
             title_cell.alignment = Alignment(horizontal='center')
 
-            worksheet.merge_cells('A2:T2')
+            worksheet.merge_cells('A2:V2')
             timestamp_cell = worksheet['A2']
             timestamp_cell.value = f"⏰ Generated: {datetime.now(timezone('Asia/Karachi')).strftime('%d %B %Y %H:%M:%S')} (PKT)"
             timestamp_cell.font = Font(size=12, italic=True, color="404040")
@@ -261,7 +278,8 @@ def save_to_excel(df, report_date):
                 'SYMBOL', 'COMPANY', 'SECTOR', 'KMI_COMPLIANT', 'VOLUME',
                 'LDCP', 'OPEN', 'CLOSE', 'HIGH', 'LOW',
                 'PREV_DAY_HIGH', 'PREV_DAY_LOW', 'WEEKLY_HIGH', 'WEEKLY_LOW',
-                'MONTHLY_HIGH', 'MONTHLY_LOW', 'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'
+                'MONTHLY_HIGH', 'MONTHLY_LOW', 'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS',
+                'CIRCUIT_BREAKER_STATUS', 'RESISTANCE_LEVELS', 'SUPPORT_LEVELS'
             ]
 
             for col_num, header in enumerate(headers, 1):
@@ -296,7 +314,7 @@ def save_to_excel(df, report_date):
             for column in worksheet.columns:
                 max_length = 0
                 column_letter = get_column_letter(column[0].column)
-                if column_letter in ['Q', 'R', 'S', 'T']:
+                if column_letter in ['Q', 'R', 'S', 'T', 'U', 'V']:
                     worksheet.column_dimensions[column_letter].width = 18
                     continue
                 for cell in column:
@@ -438,69 +456,9 @@ def load_data():
 
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
 
-    # Convert the DataFrame to HTML with frozen first column and row
-    html = f"""
-    <div style="width:100%; overflow:auto; height: 400px;">
-        <div style="display:flex; position: relative;">
-            <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 2;">
-                <table style="width:150px; border-collapse: collapse;">
-                    <thead>
-                        <tr>
-                            <th style="background-color: #f2f2f2; position: sticky; left: 0; top: 0; z-index: 3;">{result_df.columns[0]}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {''.join(f'<tr><td style="background: white; position: sticky; left: 0;">{row}</td></tr>' for row in result_df[result_df.columns[0]])}
-                    </tbody>
-                </table>
-            </div>
-            <div style="flex: auto; overflow: auto; position: relative;">
-                <table style="border-collapse: collapse; width: 100%;">
-                    <thead>
-                        <tr>
-                            {''.join(f'<th style="background-color: #f2f2f2; position: sticky; top: 0; z-index: 2;">{col}</th>' for col in result_df.columns[1:])}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {''.join(f'<tr>{"".join(f"<td>{row[col]}</td>" for col in result_df.columns[1:])}</tr>' for _, row in result_df.iterrows())}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    <style>
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-        }}
-        th, td {{
-            border: 1px solid black;
-            padding: 8px;
-            text-align: left;
-        }}
-        th {{
-            background-color: #f2f2f2;
-        }}
-        tr:hover {{
-            background-color: yellow;
-        }}
-    </style>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {{
-            const rows = document.querySelectorAll('tr');
-            rows.forEach(row => {{
-                row.addEventListener('click', function() {{
-                    rows.forEach(r => r.style.backgroundColor = '');
-                    this.style.backgroundColor = 'yellow';
-                }});
-            }});
-        }});
-    </script>
-    """
-
     return (
         excel_file,
-        gr.HTML(html),
+        styled_df,
         fig_daily,
         fig_weekly,
         fig_monthly,
@@ -515,7 +473,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
     global loaded_data
 
     if loaded_data is None:
-        return gr.HTML("No data available")
+        return gr.DataFrame()
 
     df = loaded_data.copy()
 
@@ -541,67 +499,7 @@ def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_break
         df = df[df['SYMBOL'].isin(symbols)]
 
     styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
-
-    # Convert the DataFrame to HTML with frozen first column and row
-    html = f"""
-    <div style="width:100%; overflow:auto; height: 400px;">
-        <div style="display:flex; position: relative;">
-            <div style="flex: none; width: 150px; background: white; position: sticky; left: 0; z-index: 2;">
-                <table style="width:150px; border-collapse: collapse;">
-                    <thead>
-                        <tr>
-                            <th style="background-color: #f2f2f2; position: sticky; left: 0; top: 0; z-index: 3;">{df.columns[0]}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {''.join(f'<tr><td style="background: white; position: sticky; left: 0;">{row}</td></tr>' for row in df[df.columns[0]])}
-                    </tbody>
-                </table>
-            </div>
-            <div style="flex: auto; overflow: auto; position: relative;">
-                <table style="border-collapse: collapse; width: 100%;">
-                    <thead>
-                        <tr>
-                            {''.join(f'<th style="background-color: #f2f2f2; position: sticky; top: 0; z-index: 2;">{col}</th>' for col in df.columns[1:])}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {''.join(f'<tr>{"".join(f"<td>{row[col]}</td>" for col in df.columns[1:])}</tr>' for _, row in df.iterrows())}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    <style>
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-        }}
-        th, td {{
-            border: 1px solid black;
-            padding: 8px;
-            text-align: left;
-        }}
-        th {{
-            background-color: #f2f2f2;
-        }}
-        tr:hover {{
-            background-color: yellow;
-        }}
-    </style>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {{
-            const rows = document.querySelectorAll('tr');
-            rows.forEach(row => {{
-                row.addEventListener('click', function() {{
-                    rows.forEach(r => r.style.backgroundColor = '');
-                    this.style.backgroundColor = 'yellow';
-                }});
-            }});
-        }});
-    </script>
-    """
-    return gr.HTML(html)
+    return styled_df
 
 def is_valid_symbol(symbol, symbols_data):
     """Check if symbol is valid and not a futures contract"""
@@ -631,7 +529,8 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         filter_circuit_breaker = gr.Dropdown(label="Filter by Circuit Breaker", choices=["All", "Upper Circuit Breaker", "Lower Circuit Breaker"], value="All")
         filter_symbols = gr.Textbox(label="Filter by Symbols (comma-separated)", placeholder="e.g., SYM1, SYM2")
 
-    dataframe_html = gr.HTML()
+    with gr.Row():
+        dataframe = gr.DataFrame(interactive=False, wrap=True)
 
     with gr.Row():
         with gr.Column():
@@ -653,7 +552,7 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         fn=load_data,
         outputs=[
             download,
-            dataframe_html,
+            dataframe,
             daily_plot,
             weekly_plot,
             monthly_plot,
@@ -667,33 +566,32 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     filter_breakout.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
     filter_sector.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
     filter_kmi.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
     filter_circuit_breaker.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
     filter_symbols.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
-        outputs=dataframe_html
+        outputs=dataframe
     )
 
 if __name__ == "__main__":
     app.launch()
-
