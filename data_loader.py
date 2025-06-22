@@ -1,16 +1,21 @@
-import requests, pandas as pd
+import requests
+import pandas as pd
+from io import StringIO
 
-def fetch_psx(symbol: str, start_date: str=None, end_date: str=None) -> pd.DataFrame:
-    """
-    Download historical daily CSV for a given PSX symbol.
-    """
-    url = "https://dps.psx.com.pk/historical"
-    params = {"symbol": symbol}
-    if start_date: params["start"] = start_date
-    if end_date: params["end"] = end_date
-    # PSX may require POST or mimic browser headers; here’s a placeholder GET
-    r = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"})
-    df = pd.read_html(r.text)[0]
-    # Ensure columns: Date, Open, High, Low, Close, Volume
-    df['Date'] = pd.to_datetime(df['Date'])
+def fetch_psx(symbol: str) -> pd.DataFrame:
+    url = "https://dps.psx.com.pk/historical/download"
+    payload = {"symbol": symbol}
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+    r = requests.post(url, data=payload, headers=headers)
+    
+    if r.status_code != 200 or "Date" not in r.text:
+        raise ValueError(f"No data received for symbol {symbol}")
+
+    df = pd.read_csv(StringIO(r.text))
+    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+    df.dropna(subset=["Date"], inplace=True)
     return df
