@@ -1,34 +1,33 @@
-import requests
 import pandas as pd
+import requests
 from io import StringIO
 
 def fetch_psx(symbol: str) -> pd.DataFrame:
     """
-    Fetch PSX historical data for a given symbol by downloading its CSV from the PSX website.
+    Fetch stock data from PSX historical page using logic inspired by psx-data-reader.
     """
     url = "https://dps.psx.com.pk/historical/download"
-    payload = {"symbol": symbol}
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Content-Type": "application/x-www-form-urlencoded",
     }
+    data = {"symbol": symbol.strip().upper()}
 
-    response = requests.post(url, data=payload, headers=headers)
+    try:
+        response = requests.post(url, headers=headers, data=data, timeout=10)
+        if response.status_code != 200 or "Date" not in response.text:
+            raise ValueError(f"No data found for symbol: {symbol}")
 
-    if response.status_code != 200 or "Date" not in response.text:
-        raise ValueError(f"Failed to fetch data for symbol: {symbol}")
+        df = pd.read_csv(StringIO(response.text))
+        df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+        df.dropna(subset=["Date"], inplace=True)
 
-    df = pd.read_csv(StringIO(response.text))
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Clean and parse
-    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
-    df.dropna(subset=["Date"], inplace=True)
+        df.dropna(subset=["Open", "Close", "Volume"], inplace=True)
+        return df
 
-    # Ensure correct data types
-    for col in ["Open", "High", "Low", "Close", "Volume"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    
-    df.dropna(subset=["Open", "Close", "Volume"], inplace=True)
-
-    return df
+    except Exception as e:
+        raise RuntimeError(f"Error fetching {symbol}: {e}")
