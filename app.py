@@ -1,28 +1,15 @@
 import gradio as gr
 import pandas as pd
-from data_loader import fetch_psx
+from data_loader import fetch_psx, list_available_symbols
 from screener_utils import open_gt_prev_close, volume_increasing
 from query_parser import parse_query
 
-# Load symbol list from Google Sheets
-def load_symbols():
-    url = "https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv"
-    try:
-        df_symbols = pd.read_csv(url)
-        if "Symbol" not in df_symbols.columns:
-            raise ValueError("No 'Symbol' column in symbol list.")
-        return df_symbols["Symbol"].dropna().unique().tolist()
-    except Exception as e:
-        print(f"Error loading symbol list: {e}")
-        return []
-
-# Core chatbot function
 def chat_fn(query: str):
     parsed = parse_query(query)
-    symbols = load_symbols()
+    symbols = list_available_symbols()
 
     if not symbols:
-        return "Could not load stock symbols from the online list."
+        return "Could not load stock symbols."
 
     results = []
     for sym in symbols:
@@ -35,12 +22,12 @@ def chat_fn(query: str):
             elif parsed["type"] == "volume_increasing":
                 if volume_increasing(df):
                     results.append(f"{sym}: volume ↑ over last {parsed['window']} days")
-        except Exception:
-            continue  # skip this symbol silently
+        except Exception as e:
+            print(f"[ERROR] {sym}: {e}")
+            continue
 
     return "\n".join(results) if results else "No matching stocks found."
 
-# Gradio UI setup
 with gr.Blocks() as demo:
     chatbot = gr.Chatbot(type="messages")
     msg = gr.Textbox(placeholder="Ask about PSX screeners…")
