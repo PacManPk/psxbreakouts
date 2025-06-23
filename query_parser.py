@@ -1,9 +1,7 @@
-def parse_query(query: str) -> dict:
+def parse_query(query: str):
     q = query.lower()
-    if "open higher than last" in q:
-        days = 1
-        if "five" in q or "5" in q: days = 5
-        return {"type": "open_gt_prev_close", "days": days}
-    if "volume increasing" in q:
-        return {"type": "volume_increasing", "window": 5}
+    if "open" in q and "close" in q:
+        return {"type": "open_gt_prev_close", "days": 5}
+    elif "volume" in q and "increas" in q:
+        return {"type": "volume_increasing", "window": 3}
     return {"type": "unknown"}

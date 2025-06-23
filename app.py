@@ -6,22 +6,34 @@ from query_parser import parse_query
 
 def chat_fn(query: str):
     parsed = parse_query(query)
-    symbols = list_available_symbols()
+    print(f"[QUERY PARSED] {parsed}")
 
-    if not symbols:
-        return "Could not load stock symbols."
+    symbols = list_available_symbols()[:20]  # Limit to 20 for speed
+    print(f"[INFO] Loaded {len(symbols)} symbols")
+
+    # DEBUG: test single fetch
+    try:
+        test_df = fetch_psx("PAKT")
+        print("[TEST] Fetched PAKT data:")
+        print(test_df.head())
+    except Exception as e:
+        print(f"[TEST ERROR] Could not fetch PAKT: {e}")
 
     results = []
     for sym in symbols:
+        print(f"[INFO] Processing {sym}")
         try:
             df = fetch_psx(sym)
+            print(f"[INFO] {sym} → {len(df)} rows")
+
             if parsed["type"] == "open_gt_prev_close":
                 df2 = open_gt_prev_close(df, parsed["days"])
+                print(f"[DEBUG] {sym}: {len(df2)} rows match condition")
                 if not df2.empty:
-                    results.append(f"{sym}: {len(df2)} matches (latest: {df2.iloc[-1]['Date'].strftime('%Y-%m-%d')})")
+                    results.append(f"{sym}: {len(df2)} matches")
             elif parsed["type"] == "volume_increasing":
                 if volume_increasing(df):
-                    results.append(f"{sym}: volume ↑ over last {parsed['window']} days")
+                    results.append(f"{sym}: volume ↑")
         except Exception as e:
             print(f"[ERROR] {sym}: {e}")
             continue
