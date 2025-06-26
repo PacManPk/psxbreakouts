@@ -1,7 +1,6 @@
 import gradio as gr
 import pandas as pd
 from data_loader import fetch_psx, list_available_symbols
-from screener_utils import open_gt_prev_close, volume_increasing
 from query_parser import parse_query
 
 def chat_fn(query: str):
