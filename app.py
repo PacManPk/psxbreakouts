@@ -6,32 +6,48 @@ from dotenv import load_dotenv
 import os
 import plotly.express as px
 
-# === Load Env ===
+# Load Supabase Credentials
 load_dotenv(".env.local")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# === Supabase Queries ===
+# === Supabase Query Functions (using psx_stocks) ===
 def get_latest_trading_date():
-    res = supabase.table("psx_data").select("date").order("date", desc=True).limit(1).execute()
+    res = supabase.table("psx_stocks").select("trade_date").order("trade_date", desc=True).limit(1).execute()
     if res.data:
-        return res.data[0]["date"]
+        return res.data[0]["trade_date"]
     return None
 
-def get_data_by_date(target_date: str):
-    res = supabase.table("psx_data").select("*").eq("date", target_date).execute()
+def get_data_by_date(date_str):
+    res = supabase.table("psx_stocks").select("*").eq("trade_date", date_str).execute()
     df = pd.DataFrame(res.data)
-    df.columns = [col.upper() for col in df.columns]
+    df.rename(columns={
+        "symbol": "SYMBOL",
+        "ldcp": "LDCP",
+        "open_price": "OPEN",
+        "high": "HIGH",
+        "low": "LOW",
+        "close_price": "CLOSE",
+        "volume": "VOLUME"
+    }, inplace=True)
     return df
 
-def get_data_between(start_date: str, end_date: str):
-    res = supabase.table("psx_data").select("*").gte("date", start_date).lte("date", end_date).execute()
+def get_data_between(start_date, end_date):
+    res = supabase.table("psx_stocks").select("*").gte("trade_date", start_date).lte("trade_date", end_date).execute()
     df = pd.DataFrame(res.data)
-    df.columns = [col.upper() for col in df.columns]
+    df.rename(columns={
+        "symbol": "SYMBOL",
+        "ldcp": "LDCP",
+        "open_price": "OPEN",
+        "high": "HIGH",
+        "low": "LOW",
+        "close_price": "CLOSE",
+        "volume": "VOLUME"
+    }, inplace=True)
     return df
 
-# === Helper Functions ===
+# === Analysis Logic ===
 def get_counts(df, col):
     return {
         "Breakout": df[df[col].str.contains("▲▲", na=False)].shape[0],
@@ -41,11 +57,11 @@ def get_counts(df, col):
 
 def create_pie_chart(counts, title):
     df = pd.DataFrame({"Status": counts.keys(), "Count": counts.values()})
-    return px.pie(df, values='Count', names='Status', title=title)
+    return px.pie(df, values="Count", names="Status", title=title)
 
-# === Core Analysis ===
-def calculate_breakout(df_today, df_prev_day, df_week, df_month):
+def calculate_breakout(df_today, df_prev, df_week, df_month):
     results = []
+
     for _, row in df_today.iterrows():
         symbol = row["SYMBOL"]
         close = float(row["CLOSE"])
@@ -55,43 +71,40 @@ def calculate_breakout(df_today, df_prev_day, df_week, df_month):
         daily = weekly = monthly = "N/A"
 
         # Daily
-        if not df_prev_day.empty:
-            prev = df_prev_day[df_prev_day["SYMBOL"] == symbol]
-            if not prev.empty:
-                prev_high = float(prev["HIGH"].iloc[0])
-                prev_low = float(prev["LOW"].iloc[0])
-                if close > prev_high:
-                    daily = "▲▲ Daily Breakout"
-                elif close < prev_low:
-                    daily = "▼▼ Daily Breakdown"
-                else:
-                    daily = "– Daily Within Range"
+        prev = df_prev[df_prev["SYMBOL"] == symbol]
+        if not prev.empty:
+            prev_high = float(prev["HIGH"].iloc[0])
+            prev_low = float(prev["LOW"].iloc[0])
+            if close > prev_high:
+                daily = "▲▲ Daily Breakout"
+            elif close < prev_low:
+                daily = "▼▼ Daily Breakdown"
+            else:
+                daily = "– Daily Within Range"
 
         # Weekly
-        if not df_week.empty:
-            week = df_week[df_week["SYMBOL"] == symbol]
-            if not week.empty:
-                w_high = week["HIGH"].astype(float).max()
-                w_low = week["LOW"].astype(float).min()
-                if close > w_high:
-                    weekly = "▲▲ Weekly Breakout"
-                elif close < w_low:
-                    weekly = "▼▼ Weekly Breakdown"
-                else:
-                    weekly = "– Weekly Within Range"
+        week = df_week[df_week["SYMBOL"] == symbol]
+        if not week.empty:
+            w_high = week["HIGH"].astype(float).max()
+            w_low = week["LOW"].astype(float).min()
+            if close > w_high:
+                weekly = "▲▲ Weekly Breakout"
+            elif close < w_low:
+                weekly = "▼▼ Weekly Breakdown"
+            else:
+                weekly = "– Weekly Within Range"
 
         # Monthly
-        if not df_month.empty:
-            month = df_month[df_month["SYMBOL"] == symbol]
-            if not month.empty:
-                m_high = month["HIGH"].astype(float).max()
-                m_low = month["LOW"].astype(float).min()
-                if close > m_high:
-                    monthly = "▲▲ Monthly Breakout"
-                elif close < m_low:
-                    monthly = "▼▼ Monthly Breakdown"
-                else:
-                    monthly = "– Monthly Within Range"
+        month = df_month[df_month["SYMBOL"] == symbol]
+        if not month.empty:
+            m_high = month["HIGH"].astype(float).max()
+            m_low = month["LOW"].astype(float).min()
+            if close > m_high:
+                monthly = "▲▲ Monthly Breakout"
+            elif close < m_low:
+                monthly = "▼▼ Monthly Breakdown"
+            else:
+                monthly = "– Monthly Within Range"
 
         results.append({
             "SYMBOL": symbol,
@@ -99,11 +112,12 @@ def calculate_breakout(df_today, df_prev_day, df_week, df_month):
             "LDCP": ldcp,
             "HIGH": high,
             "LOW": low,
-            "VOLUME": row.get("VOLUME", ""),
+            "VOLUME": row["VOLUME"],
             "DAILY_STATUS": daily,
             "WEEKLY_STATUS": weekly,
             "MONTHLY_STATUS": monthly
         })
+
     return pd.DataFrame(results)
 
 # === Gradio UI ===
@@ -127,8 +141,7 @@ with gr.Blocks(css="""
         font-size: 14px;
     }
 """) as demo:
-    gr.Markdown("### 📈 PSX Breakout Analysis (via Supabase)")
-
+    gr.Markdown("### 📊 PSX Breakout Analysis (from Supabase)")
     run_btn = gr.Button("Run Analysis")
     preview_html = gr.HTML()
     daily_plot = gr.Plot()
@@ -138,7 +151,7 @@ with gr.Blocks(css="""
     def run():
         latest = get_latest_trading_date()
         if not latest:
-            return "❌ No data found", None, None, None
+            return "❌ No data available", None, None, None
 
         today = datetime.strptime(latest, "%Y-%m-%d")
         df_today = get_data_by_date(latest)
@@ -151,32 +164,30 @@ with gr.Blocks(css="""
             if not df_prev.empty:
                 break
 
-        # Previous week
+        # Weekly
         week_start = (today - timedelta(days=today.weekday() + 7)).strftime("%Y-%m-%d")
         week_end = (today - timedelta(days=today.weekday() + 3)).strftime("%Y-%m-%d")
         df_week = get_data_between(week_start, week_end)
 
-        # Previous month
-        first_prev_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1).strftime("%Y-%m-%d")
-        last_prev_month = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m-%d")
-        df_month = get_data_between(first_prev_month, last_prev_month)
+        # Monthly
+        m1 = (today.replace(day=1) - timedelta(days=1)).replace(day=1).strftime("%Y-%m-%d")
+        m2 = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m-%d")
+        df_month = get_data_between(m1, m2)
 
-        # Compute
         results = calculate_breakout(df_today, df_prev, df_week, df_month)
 
-        # HTML Preview
         html = "<table class='styled-table'>"
         html += "<thead><tr>" + "".join(f"<th>{col}</th>" for col in results.columns) + "</tr></thead><tbody>"
         for _, row in results.iterrows():
             html += "<tr>" + "".join(f"<td>{val}</td>" for val in row.values) + "</tr>"
         html += "</tbody></table>"
 
-        # Charts
-        daily_counts = get_counts(results, "DAILY_STATUS")
-        weekly_counts = get_counts(results, "WEEKLY_STATUS")
-        monthly_counts = get_counts(results, "MONTHLY_STATUS")
-
-        return html, create_pie_chart(daily_counts, "Daily Breakout"), create_pie_chart(weekly_counts, "Weekly Breakout"), create_pie_chart(monthly_counts, "Monthly Breakout")
+        return (
+            html,
+            create_pie_chart(get_counts(results, "DAILY_STATUS"), "Daily Breakout"),
+            create_pie_chart(get_counts(results, "WEEKLY_STATUS"), "Weekly Breakout"),
+            create_pie_chart(get_counts(results, "MONTHLY_STATUS"), "Monthly Breakout")
+        )
 
     run_btn.click(fn=run, outputs=[preview_html, daily_plot, weekly_plot, monthly_plot])
 
