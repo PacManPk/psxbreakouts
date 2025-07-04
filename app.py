@@ -8,6 +8,8 @@ from pytz import timezone
 from supabase import create_client, Client
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
+from dotenv import load_dotenv
+load_dotenv('.env.local')  # Load environment variables from .env.local
 
 # Initialize Supabase client
 url: str = os.environ.get("SUPABASE_URL")
