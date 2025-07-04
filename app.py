@@ -11,7 +11,7 @@ from io import StringIO
 
 # Initialize Supabase client
 url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
+key: str = os.environ.get("SUPABASE_ANON_KEY")
 supabase: Client = create_client(url, key)
 
 # Configuration
