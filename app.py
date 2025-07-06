@@ -4,19 +4,16 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from pytz import timezone
 from concurrent.futures import ThreadPoolExecutor
-from io import StringIO
 import os
 
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# Configuration
 load_dotenv(".env.local")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
 MAX_DAYS_BACK = 5
 CIRCUIT_BREAKER_PERCENTAGE = 7.5
@@ -27,24 +24,20 @@ loaded_data = None
 def get_symbols_data():
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
-            psx_response_future = executor.submit(pd.read_csv, PSX_STOCK_DATA_URL)
             kmi_response_future = executor.submit(pd.read_csv, KMI_SYMBOLS_FILE)
-            psx_df = psx_response_future.result()
             kmi_df = kmi_response_future.result()
-        psx_required = ['Symbol', 'Company Name', 'Sector']
-        for col in psx_required:
-            if col not in psx_df.columns:
-                raise ValueError(f"Missing column: {col}")
         kmi_symbols = set()
         if 'Symbol' in kmi_df.columns:
             kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
+        symbols_query = supabase.table("psx_stocks").select("symbol").execute()
+        symbols = set([row['symbol'].strip().upper() for row in symbols_query.data])
         symbols_data = {
-            row['Symbol'].strip().upper(): {
-                'Company': row['Company Name'],
-                'Sector': row['Sector'],
-                'KMI': 'Yes' if row['Symbol'].strip().upper() in kmi_symbols else 'No'
+            sym: {
+                'Company': sym,
+                'Sector': 'N/A',
+                'KMI': 'Yes' if sym in kmi_symbols else 'No'
             }
-            for _, row in psx_df.iterrows()
+            for sym in symbols
         }
         return symbols_data
     except Exception as e:
@@ -219,11 +212,17 @@ def highlight_status(val):
         return 'background-color: #A52A2A; color: white'
     return ''
 
+def apply_highlight(styler):
+    # Use Styler.map instead of applymap for each column
+    for col in ['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS']:
+        styler = styler.map(highlight_status, subset=[col])
+    return styler
+
 def load_data():
     global loaded_data
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None, None, None, None
     date_to_try = datetime.now()
     attempts = 0
     today_data, today_date = None, None
@@ -234,13 +233,9 @@ def load_data():
                 break
         date_to_try -= timedelta(days=1)
         attempts += 1
-    if today_data is None:
-        print("❌ No market data found")
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+    if today_data is None or today_data.empty:
+        return None, None, None, None, None, None, None, None
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
-    if today_data.empty:
-        print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
     prev_day_data = None
     days_back = 1
@@ -284,8 +279,7 @@ def load_data():
     daily_table = pd.DataFrame.from_dict(daily_counts, orient='index').reset_index()
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
-    styled_df = result_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
-    symbol_choices = ["All"] + sorted(result_df['SYMBOL'].unique())
+    styled_df = result_df.style.pipe(apply_highlight)
     return (
         styled_df,
         fig_daily,
@@ -294,7 +288,6 @@ def load_data():
         daily_table,
         weekly_table,
         monthly_table,
-        gr.update(choices=symbol_choices)
     )
 
 with gr.Blocks() as demo:
@@ -316,7 +309,7 @@ with gr.Blocks() as demo:
     load_btn.click(
         load_data,
         inputs=[],
-        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, daily_table, weekly_table, monthly_table, data_table]
+        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, daily_table, weekly_table, monthly_table]
     )
 
 if __name__ == "__main__":
