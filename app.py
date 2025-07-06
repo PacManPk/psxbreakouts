@@ -294,7 +294,7 @@ def load_data():
     global loaded_data
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None
     date_to_try = datetime.now()
     attempts = 0
     today_data, today_date = None, None
@@ -307,10 +307,10 @@ def load_data():
         attempts += 1
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+        return None, None, None, None, None
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
     prev_day_data = None
     days_back = 1
@@ -352,20 +352,13 @@ def load_data():
     fig_daily = create_pie_chart(daily_counts, "Daily Breakout Distribution")
     fig_weekly = create_pie_chart(weekly_counts, "Weekly Breakout Distribution")
     fig_monthly = create_pie_chart(monthly_counts, "Monthly Breakout Distribution")
-    daily_table = pd.DataFrame.from_dict(daily_counts, orient='index').reset_index()
-    weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
-    monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
     styled_df = result_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
     return (
         styled_df,
         fig_daily,
         fig_weekly,
         fig_monthly,
-        excel_file,
-        daily_table,
-        weekly_table,
-        monthly_table,
-        gr.update(choices=["All"] + sorted(result_df['SYMBOL'].unique()))
+        excel_file
     )
 
 with gr.Blocks() as demo:
@@ -383,7 +376,7 @@ with gr.Blocks() as demo:
     load_btn.click(
         load_data,
         inputs=[],
-        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, download_btn, None, None, None, None]
+        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, download_btn]
     )
 
 if __name__ == "__main__":
