@@ -2,24 +2,21 @@ import gradio as gr
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
-import tempfile
 from pytz import timezone
-from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Alignment, PatternFill
+from concurrent.futures import ThreadPoolExecutor
+from io import StringIO
 import os
 
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
+# Configuration
 load_dotenv(".env.local")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
+PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
 MAX_DAYS_BACK = 5
 CIRCUIT_BREAKER_PERCENTAGE = 7.5
@@ -29,19 +26,25 @@ loaded_data = None
 
 def get_symbols_data():
     try:
-        kmi_df = pd.read_csv(KMI_SYMBOLS_FILE)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            psx_response_future = executor.submit(pd.read_csv, PSX_STOCK_DATA_URL)
+            kmi_response_future = executor.submit(pd.read_csv, KMI_SYMBOLS_FILE)
+            psx_df = psx_response_future.result()
+            kmi_df = kmi_response_future.result()
+        psx_required = ['Symbol', 'Company Name', 'Sector']
+        for col in psx_required:
+            if col not in psx_df.columns:
+                raise ValueError(f"Missing column: {col}")
         kmi_symbols = set()
         if 'Symbol' in kmi_df.columns:
             kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
-        symbols_query = supabase.table("psx_stocks").select("symbol").execute()
-        symbols = set([row['symbol'].strip().upper() for row in symbols_query.data])
         symbols_data = {
-            sym: {
-                'Company': sym,
-                'Sector': 'N/A',
-                'KMI': 'Yes' if sym in kmi_symbols else 'No'
+            row['Symbol'].strip().upper(): {
+                'Company': row['Company Name'],
+                'Sector': row['Sector'],
+                'KMI': 'Yes' if row['Symbol'].strip().upper() in kmi_symbols else 'No'
             }
-            for sym in symbols
+            for _, row in psx_df.iterrows()
         }
         return symbols_data
     except Exception as e:
@@ -188,80 +191,6 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
         })
     return pd.DataFrame(results)
 
-def save_to_excel(df, report_date):
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            EXCEL_FILE = tmp.name
-            workbook = Workbook()
-            worksheet = workbook.active
-            worksheet.title = 'Breakout Analysis'
-            formatted_date = datetime.strptime(report_date, "%Y-%m-%d").strftime("%d %B %Y")
-            worksheet.merge_cells('A1:T1')
-            title_cell = worksheet['A1']
-            title_cell.value = f"📈 PSX Breakout Analysis - {formatted_date}"
-            title_cell.font = Font(bold=True, size=14, color="1F4E78")
-            title_cell.alignment = Alignment(horizontal='center')
-            worksheet.merge_cells('A2:T2')
-            timestamp_cell = worksheet['A2']
-            timestamp_cell.value = f"⏰ Generated: {datetime.now(timezone('Asia/Karachi')).strftime('%d %B %Y %H:%M:%S')} (PKT)"
-            timestamp_cell.font = Font(size=12, italic=True, color="404040")
-            timestamp_cell.alignment = Alignment(horizontal='center')
-            headers = [
-                'SYMBOL', 'COMPANY', 'SECTOR', 'KMI_COMPLIANT', 'VOLUME',
-                'LDCP', 'OPEN', 'CLOSE', 'HIGH', 'LOW',
-                'PREV_DAY_HIGH', 'PREV_DAY_LOW', 'WEEKLY_HIGH', 'WEEKLY_LOW',
-                'MONTHLY_HIGH', 'MONTHLY_LOW', 'DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'
-            ]
-            for col_num, header in enumerate(headers, 1):
-                cell = worksheet.cell(row=3, column=col_num, value=header)
-                cell.font = Font(bold=True, color="FFFFFF")
-                cell.fill = PatternFill(start_color="4F81BD", fill_type="solid")
-                cell.alignment = Alignment(horizontal='center')
-            for row in dataframe_to_rows(df, index=False, header=False):
-                worksheet.append(row)
-            status_cols = {17: 'DAILY_STATUS', 18: 'WEEKLY_STATUS', 19: 'MONTHLY_STATUS', 20: 'CIRCUIT_BREAKER_STATUS'}
-            cond_formatting = {
-                "▲▲": PatternFill(start_color="008000", fill_type="solid"),
-                "▲": PatternFill(start_color="92D050", fill_type="solid"),
-                "▼▼": PatternFill(start_color="FF0000", fill_type="solid"),
-                "▼": PatternFill(start_color="FFC7CE", fill_type="solid"),
-                "–": PatternFill(start_color="D9D9D9", fill_type="solid"),
-                "Upper Circuit Breaker": PatternFill(start_color="FFD700", fill_type="solid"),
-                "Lower Circuit Breaker": PatternFill(start_color="A52A2A", fill_type="solid")
-            }
-            for col_num, col_name in status_cols.items():
-                for row in range(4, len(df) + 4):
-                    cell = worksheet.cell(row=row, column=col_num)
-                    for prefix, fill in cond_formatting.items():
-                        if prefix in str(cell.value):
-                            cell.fill = fill
-                            break
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = get_column_letter(column[0].column)
-                if column_letter in ['Q', 'R', 'S', 'T']:
-                    worksheet.column_dimensions[column_letter].width = 18
-                    continue
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = (max_length + 2) * 1.1
-                worksheet.column_dimensions[column_letter].width = adjusted_width
-            worksheet.column_dimensions['A'].width = 12
-            worksheet.column_dimensions['B'].width = 30
-            worksheet.column_dimensions['C'].width = 20
-            worksheet.column_dimensions['D'].width = 12
-            worksheet.column_dimensions['E'].width = 15
-            worksheet.freeze_panes = 'C4'
-            workbook.save(EXCEL_FILE)
-            return EXCEL_FILE
-    except Exception as e:
-        print(f"Error saving Excel file: {e}")
-        return None
-
 def get_counts(df, status_col):
     return {
         "Breakout": len(df[df[status_col].str.contains("▲▲")]),
@@ -290,11 +219,11 @@ def highlight_status(val):
         return 'background-color: #A52A2A; color: white'
     return ''
 
-def load_data(symbol_search, filter_breakouts, selected_sector, selected_kmi):
+def load_data():
     global loaded_data
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return [None]*9 + [gr.update(value="")]
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
     date_to_try = datetime.now()
     attempts = 0
     today_data, today_date = None, None
@@ -306,10 +235,12 @@ def load_data(symbol_search, filter_breakouts, selected_sector, selected_kmi):
         date_to_try -= timedelta(days=1)
         attempts += 1
     if today_data is None:
-        return [None]*9 + [gr.update(value="")]
+        print("❌ No market data found")
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
-        return [None]*9 + [gr.update(value="")]
+        print("⚠️ No valid symbols found")
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
     prev_day_data = None
     days_back = 1
@@ -343,24 +274,7 @@ def load_data(symbol_search, filter_breakouts, selected_sector, selected_kmi):
         current_date += timedelta(days=1)
     prev_month_data = pd.concat(all_month_data) if all_month_data else None
     result_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
-    # Apply symbol search filter (case-insensitive substring)
-    if symbol_search:
-        result_df = result_df[result_df['SYMBOL'].str.contains(symbol_search.strip(), case=False, na=False)]
-    # Filter for breakouts checkbox
-    if filter_breakouts:
-        result_df = result_df[
-            (result_df['DAILY_STATUS'].str.contains("▲▲")) |
-            (result_df['WEEKLY_STATUS'].str.contains("▲▲")) |
-            (result_df['MONTHLY_STATUS'].str.contains("▲▲"))
-        ]
-    # Sector filter
-    if selected_sector and selected_sector != "All":
-        result_df = result_df[result_df['SECTOR'] == selected_sector]
-    # KMI filter
-    if selected_kmi and selected_kmi != "All":
-        result_df = result_df[result_df['KMI_COMPLIANT'] == selected_kmi]
     loaded_data = result_df
-    excel_file = save_to_excel(result_df, today_date)
     daily_counts = get_counts(result_df, 'DAILY_STATUS')
     weekly_counts = get_counts(result_df, 'WEEKLY_STATUS')
     monthly_counts = get_counts(result_df, 'MONTHLY_STATUS')
@@ -371,59 +285,38 @@ def load_data(symbol_search, filter_breakouts, selected_sector, selected_kmi):
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
     styled_df = result_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
+    symbol_choices = ["All"] + sorted(result_df['SYMBOL'].unique())
     return (
         styled_df,
         fig_daily,
         fig_weekly,
         fig_monthly,
-        excel_file,
         daily_table,
         weekly_table,
         monthly_table,
-        gr.update(value="")
+        gr.update(choices=symbol_choices)
     )
-
-def get_sector_choices():
-    symbols_data = get_symbols_data()
-    sectors = set()
-    for v in symbols_data.values():
-        sectors.add(v["Sector"])
-    return ["All"] + sorted(sectors)
-
-def get_kmi_choices():
-    return ["All", "Yes", "No"]
 
 with gr.Blocks() as demo:
     gr.Markdown("# PSX Breakout Analysis (Supabase Powered)")
-
     with gr.Row():
-        symbol_search = gr.Textbox(label="Search Symbol (type to filter)", placeholder="Type symbol substring...")
-        filter_breakouts = gr.Checkbox(label="Show Only Breakouts (Daily/Weekly/Monthly)")
-    with gr.Row():
-        sector_dropdown = gr.Dropdown(label="Sector", choices=get_sector_choices(), value="All")
-        kmi_dropdown = gr.Dropdown(label="KMI Compliant", choices=get_kmi_choices(), value="All")
         load_btn = gr.Button("Load Data")
-        download_btn = gr.File(label="Download Excel Report")
-
-    data_table = gr.DataFrame(label="Breakout Table", interactive=False)
-
+    with gr.Row():
+        data_table = gr.DataFrame(label="Breakout Table", interactive=False)
     with gr.Row():
         fig_daily = gr.Plot(label="Daily Breakout Distribution")
         fig_weekly = gr.Plot(label="Weekly Breakout Distribution")
         fig_monthly = gr.Plot(label="Monthly Breakout Distribution")
-
     with gr.Row():
         gr.Markdown("### Daily/Weekly/Monthly Status Counts")
-
     with gr.Row():
         daily_table = gr.DataFrame(label="Daily Counts", interactive=False)
         weekly_table = gr.DataFrame(label="Weekly Counts", interactive=False)
         monthly_table = gr.DataFrame(label="Monthly Counts", interactive=False)
-
     load_btn.click(
         load_data,
-        inputs=[symbol_search, filter_breakouts, sector_dropdown, kmi_dropdown],
-        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, download_btn, daily_table, weekly_table, monthly_table, symbol_search]
+        inputs=[],
+        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, daily_table, weekly_table, monthly_table, data_table]
     )
 
 if __name__ == "__main__":
