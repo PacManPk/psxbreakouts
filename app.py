@@ -13,13 +13,11 @@ import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv(".env.local")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-# Connect to Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
@@ -34,7 +32,6 @@ def get_symbols_data():
         kmi_symbols = set()
         if 'Symbol' in kmi_df.columns:
             kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
-        # Fetch all unique symbols from psx_stocks table
         symbols_query = supabase.table("psx_stocks").select("symbol").execute()
         symbols = set([row['symbol'].strip().upper() for row in symbols_query.data])
         symbols_data = {
@@ -68,7 +65,6 @@ def fetch_market_data(date):
             "close_price": "CLOSE",
             "volume": "VOLUME"
         }, inplace=True)
-        # Convert to string for compatibility
         for col in ["LDCP", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]:
             df[col] = df[col].apply(lambda x: f"{x:,}" if pd.notnull(x) else "")
         return df, date_str
