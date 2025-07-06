@@ -2,45 +2,55 @@ import gradio as gr
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
+import tempfile
 from pytz import timezone
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill
-import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from io import StringIO
 import os
 
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
+# --- CONFIGURATION ---
 load_dotenv(".env.local")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
+PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
 KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
 MAX_DAYS_BACK = 5
 CIRCUIT_BREAKER_PERCENTAGE = 7.5
 CIRCUIT_BREAKER_RS_LIMIT = 1
+
 loaded_data = None
 
 def get_symbols_data():
     try:
-        kmi_df = pd.read_csv(KMI_SYMBOLS_FILE)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            psx_response_future = executor.submit(pd.read_csv, PSX_STOCK_DATA_URL)
+            kmi_response_future = executor.submit(pd.read_csv, KMI_SYMBOLS_FILE)
+            psx_df = psx_response_future.result()
+            kmi_df = kmi_response_future.result()
+        psx_required = ['Symbol', 'Company Name', 'Sector']
+        for col in psx_required:
+            if col not in psx_df.columns:
+                raise ValueError(f"Missing column: {col}")
         kmi_symbols = set()
         if 'Symbol' in kmi_df.columns:
             kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
-        symbols_query = supabase.table("psx_stocks").select("symbol").execute()
-        symbols = set([row['symbol'].strip().upper() for row in symbols_query.data])
         symbols_data = {
-            sym: {
-                'Company': sym,
-                'Sector': 'N/A',
-                'KMI': 'Yes' if sym in kmi_symbols else 'No'
+            row['Symbol'].strip().upper(): {
+                'Company': row['Company Name'],
+                'Sector': row['Sector'],
+                'KMI': 'Yes' if row['Symbol'].strip().upper() in kmi_symbols else 'No'
             }
-            for sym in symbols
+            for _, row in psx_df.iterrows()
         }
         return symbols_data
     except Exception as e:
@@ -71,6 +81,12 @@ def fetch_market_data(date):
     except Exception as e:
         print(f"Error fetching data: {str(e)}")
         return None, None
+
+def is_valid_symbol(symbol, symbols_data):
+    return symbol and symbol.strip().upper() in symbols_data
+
+def is_weekend(date):
+    return date.weekday() >= 5
 
 def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data):
     results = []
@@ -283,14 +299,11 @@ def highlight_status(val):
         return 'background-color: #A52A2A; color: white'
     return ''
 
-def is_weekend(date):
-    return date.weekday() >= 5
-
-def load_data():
+def load_data(selected_symbol, selected_sector, selected_kmi, selected_status):
     global loaded_data
     symbols_data = get_symbols_data()
     if not symbols_data:
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
     date_to_try = datetime.now()
     attempts = 0
     today_data, today_date = None, None
@@ -303,10 +316,11 @@ def load_data():
         attempts += 1
     if today_data is None:
         print("❌ No market data found")
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
+    today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
     prev_day_data = None
     days_back = 1
@@ -340,27 +354,70 @@ def load_data():
         current_date += timedelta(days=1)
     prev_month_data = pd.concat(all_month_data) if all_month_data else None
     result_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
-    loaded_data = result_df
-    excel_file = save_to_excel(result_df, today_date)
-    daily_counts = get_counts(result_df, 'DAILY_STATUS')
-    weekly_counts = get_counts(result_df, 'WEEKLY_STATUS')
-    monthly_counts = get_counts(result_df, 'MONTHLY_STATUS')
+    # --- FILTERS ---
+    filtered_df = result_df.copy()
+    if selected_symbol and selected_symbol != "All":
+        filtered_df = filtered_df[filtered_df['SYMBOL'] == selected_symbol]
+    if selected_sector and selected_sector != "All":
+        filtered_df = filtered_df[filtered_df['SECTOR'] == selected_sector]
+    if selected_kmi and selected_kmi != "All":
+        filtered_df = filtered_df[filtered_df['KMI_COMPLIANT'] == selected_kmi]
+    if selected_status and selected_status != "All":
+        filtered_df = filtered_df[
+            (filtered_df['DAILY_STATUS'].str.contains(selected_status)) |
+            (filtered_df['WEEKLY_STATUS'].str.contains(selected_status)) |
+            (filtered_df['MONTHLY_STATUS'].str.contains(selected_status))
+        ]
+    loaded_data = filtered_df
+    excel_file = save_to_excel(filtered_df, today_date)
+    daily_counts = get_counts(filtered_df, 'DAILY_STATUS')
+    weekly_counts = get_counts(filtered_df, 'WEEKLY_STATUS')
+    monthly_counts = get_counts(filtered_df, 'MONTHLY_STATUS')
     fig_daily = create_pie_chart(daily_counts, "Daily Breakout Distribution")
     fig_weekly = create_pie_chart(weekly_counts, "Weekly Breakout Distribution")
     fig_monthly = create_pie_chart(monthly_counts, "Monthly Breakout Distribution")
-    styled_df = result_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
+    daily_table = pd.DataFrame.from_dict(daily_counts, orient='index').reset_index()
+    weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
+    monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
+    styled_df = filtered_df.style.applymap(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
+    # update symbol choices
+    symbol_choices = ["All"] + sorted(result_df['SYMBOL'].unique())
     return (
         styled_df,
         fig_daily,
         fig_weekly,
         fig_monthly,
-        excel_file
+        excel_file,
+        daily_table,
+        weekly_table,
+        monthly_table,
+        gr.update(choices=symbol_choices)
     )
+
+def get_sector_choices():
+    symbols_data = get_symbols_data()
+    sectors = set()
+    for v in symbols_data.values():
+        sectors.add(v["Sector"])
+    return ["All"] + sorted(sectors)
+
+def get_kmi_choices():
+    return ["All", "Yes", "No"]
+
+def get_status_choices():
+    return ["All", "Breakout", "Breakdown", "Within Range"]
 
 with gr.Blocks() as demo:
     gr.Markdown("# PSX Breakout Analysis (Supabase Powered)")
     with gr.Row():
-        load_btn = gr.Button("Load Data")
+        with gr.Column():
+            symbol_dropdown = gr.Dropdown(label="Symbol", choices=["All"], value="All")
+            sector_dropdown = gr.Dropdown(label="Sector", choices=get_sector_choices(), value="All")
+            kmi_dropdown = gr.Dropdown(label="KMI Compliant", choices=get_kmi_choices(), value="All")
+            status_dropdown = gr.Dropdown(label="Status", choices=get_status_choices(), value="All")
+            load_btn = gr.Button("Load Data")
+        with gr.Column():
+            download_btn = gr.File(label="Download Excel Report")
     with gr.Row():
         data_table = gr.DataFrame(label="Breakout Table", interactive=False)
     with gr.Row():
@@ -368,11 +425,15 @@ with gr.Blocks() as demo:
         fig_weekly = gr.Plot(label="Weekly Breakout Distribution")
         fig_monthly = gr.Plot(label="Monthly Breakout Distribution")
     with gr.Row():
-        download_btn = gr.File(label="Download Excel Report")
+        gr.Markdown("### Daily/Weekly/Monthly Status Counts")
+    with gr.Row():
+        daily_table = gr.DataFrame(label="Daily Counts", interactive=False)
+        weekly_table = gr.DataFrame(label="Weekly Counts", interactive=False)
+        monthly_table = gr.DataFrame(label="Monthly Counts", interactive=False)
     load_btn.click(
         load_data,
-        inputs=[],
-        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, download_btn]
+        inputs=[symbol_dropdown, sector_dropdown, kmi_dropdown, status_dropdown],
+        outputs=[data_table, fig_daily, fig_weekly, fig_monthly, download_btn, daily_table, weekly_table, monthly_table, symbol_dropdown]
     )
 
 if __name__ == "__main__":
