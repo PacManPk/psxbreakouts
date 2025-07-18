@@ -1,7 +1,6 @@
+import os
 import gradio as gr
-import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import tempfile
 import plotly.express as px
@@ -12,53 +11,43 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Alignment, PatternFill
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
+from dotenv import load_dotenv
 
-# Configuration
-PSX_HISTORICAL_URL = 'https://dps.psx.com.pk/historical'
-PSX_STOCK_DATA_URL = 'https://docs.google.com/spreadsheets/d/1wGpkG37p2GV4aCckLYdaznQ4FjlQog8E/export?format=csv'
-KMI_SYMBOLS_FILE = 'https://drive.google.com/uc?export=download&id=1Lf24EnwxUV3l64Y6i_XO-JoP0CEY-tuB'
+# ENVIRONMENT
+if os.path.exists('.env.local'):
+    load_dotenv('.env.local')
+
+SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+
+from supabase import create_client, Client
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# CONFIG
 MONTH_CODES = ['-JAN', '-FEB', '-MAR', '-APR', '-MAY', '-JUN', '-JUL', '-AUG', '-SEP', '-OCT', '-NOV', '-DEC']
 MAX_DAYS_BACK = 5
 CIRCUIT_BREAKER_PERCENTAGE = 7.5
 CIRCUIT_BREAKER_RS_LIMIT = 1
 
-# Global variable to store the loaded data
 loaded_data = None
 
-def fetch_url(url):
-    """Fetch data from a URL."""
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        print(f"Error fetching data from {url}: {e}")
-        return None
+# --- SUPABASE DATA FUNCTIONS ---
 
 def get_symbols_data():
-    """Load symbol data from both PSX stock data and KMI compliance files"""
     try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            psx_response_future = executor.submit(fetch_url, PSX_STOCK_DATA_URL)
-            kmi_response_future = executor.submit(fetch_url, KMI_SYMBOLS_FILE)
+        companies = supabase.table('companies').select("*").execute().data
+        kmi = supabase.table('kmi_compliance').select("Symbol").execute().data
 
-            psx_response_text = psx_response_future.result()
-            kmi_response_text = kmi_response_future.result()
-
-        if not psx_response_text or not kmi_response_text:
-            return {}
-
-        psx_df = pd.read_csv(StringIO(psx_response_text))
-        kmi_df = pd.read_csv(StringIO(kmi_response_text))
+        psx_df = pd.DataFrame(companies)
+        kmi_df = pd.DataFrame(kmi)
 
         psx_required = ['Symbol', 'Company Name', 'Sector']
         for col in psx_required:
             if col not in psx_df.columns:
                 raise ValueError(f"Missing column: {col}")
 
-        kmi_symbols = set()
-        if 'Symbol' in kmi_df.columns:
-            kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper())
+        kmi_symbols = set(kmi_df['Symbol'].str.strip().str.upper()) if not kmi_df.empty else set()
 
         symbols_data = {
             row['Symbol'].strip().upper(): {
@@ -68,50 +57,33 @@ def get_symbols_data():
             }
             for _, row in psx_df.iterrows()
         }
-
         return symbols_data
     except Exception as e:
         print(f"Error loading symbols data: {e}")
         return {}
 
 def fetch_market_data(date):
-    """Fetch market data from PSX historical page for a specific date"""
     try:
         date_str = date.strftime('%Y-%m-%d')
-        response = requests.post(PSX_HISTORICAL_URL, data={'date': date_str}, timeout=30)
-        response.raise_for_status()
-
-        soup = BeautifulSoup(response.text, 'html.parser')
-        rows = soup.find_all('tr')
-
-        if len(rows) <= 1:
+        data = supabase.table('market_data').select('*').eq('date', date_str).execute().data
+        if not data:
             return None, None
-
-        data = []
-        for row in rows[1:]:
-            cells = [cell.text.strip() for cell in row.find_all('td')]
-            if len(cells) >= 9:
-                raw_volume = cells[8]
-                try:
-                    volume = int(raw_volume.replace(',', '')) if raw_volume and raw_volume != '-' else 0
-                except ValueError:
-                    volume = 0
-
-                data.append([
-                    cells[0], cells[1], cells[2], cells[3], cells[4], cells[5], str(volume)
-                ])
-
-        if data:
-            df = pd.DataFrame(data, columns=['SYMBOL', 'LDCP', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME'])
-            return df, date_str
-
-        return None, None
+        df = pd.DataFrame(data)
+        for col in ['SYMBOL', 'LDCP', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']:
+            if col not in df.columns:
+                if col.lower() in df.columns:
+                    df.rename(columns={col.lower(): col}, inplace=True)
+                else:
+                    df[col] = None
+        df = df[['SYMBOL', 'LDCP', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']]
+        return df, date_str
     except Exception as e:
-        print(f"Error fetching data: {str(e)}")
+        print(f"Error fetching market data from supabase: {e}")
         return None, None
+
+# --- ALL REMAINING FUNCTIONS UNCHANGED FROM YOUR ORIGINAL CODE BELOW ---
 
 def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data):
-    """Calculate breakout statuses using proper weekly/monthly periods"""
     results = []
 
     for _, today_row in today_data.iterrows():
@@ -235,7 +207,6 @@ def calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_mon
     return pd.DataFrame(results)
 
 def save_to_excel(df, report_date):
-    """Save the results to an Excel file with formatting"""
     try:
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             EXCEL_FILE = tmp.name
@@ -323,7 +294,6 @@ def save_to_excel(df, report_date):
         return None
 
 def get_counts(df, status_col):
-    """Count breakout statuses for visualization"""
     return {
         "Breakout": len(df[df[status_col].str.contains("▲▲")]),
         "Breakdown": len(df[df[status_col].str.contains("▼▼")]),
@@ -331,7 +301,6 @@ def get_counts(df, status_col):
     }
 
 def create_pie_chart(counts, title):
-    """Create Plotly pie chart"""
     df = pd.DataFrame({
         'Status': list(counts.keys()),
         'Count': list(counts.values())
@@ -340,7 +309,6 @@ def create_pie_chart(counts, title):
     return fig
 
 def highlight_status(val):
-    """Highlight status cells based on their value"""
     if "▲▲" in str(val):
         return 'background-color: #008000; color: white'
     elif "▼▼" in str(val):
@@ -353,18 +321,24 @@ def highlight_status(val):
         return 'background-color: #A52A2A; color: white'
     return ''
 
-def load_data():
-    """Load and return the data"""
-    global loaded_data
+def is_valid_symbol(symbol, symbols_data):
+    try:
+        symbol = symbol.strip().upper()
+        return (symbol in symbols_data) and not any(month in symbol for month in MONTH_CODES)
+    except:
+        return False
 
+def is_weekend(date):
+    return date.weekday() >= 5
+
+def load_data():
+    global loaded_data
     symbols_data = get_symbols_data()
     if not symbols_data:
         return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
-
     date_to_try = datetime.now()
     attempts = 0
     today_data, today_date = None, None
-
     while attempts < MAX_DAYS_BACK and today_data is None:
         if not is_weekend(date_to_try):
             today_data, today_date = fetch_market_data(date_to_try)
@@ -372,18 +346,14 @@ def load_data():
                 break
         date_to_try -= timedelta(days=1)
         attempts += 1
-
     if today_data is None:
         print("❌ No market data found")
         return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
-
     today_data = today_data[today_data['SYMBOL'].apply(lambda x: is_valid_symbol(x, symbols_data))].copy()
     if today_data.empty:
         print("⚠️ No valid symbols found")
         return None, None, None, None, None, None, None, None, gr.update(choices=["All"])
-
     target_date = datetime.strptime(today_date, "%Y-%m-%d")
-
     prev_day_data = None
     days_back = 1
     while days_back <= MAX_DAYS_BACK and prev_day_data is None:
@@ -393,7 +363,6 @@ def load_data():
             if prev_day_data is not None:
                 break
         days_back += 1
-
     prev_monday = target_date - timedelta(days=target_date.weekday() + 7)
     prev_friday = prev_monday + timedelta(days=4)
     current_date = prev_monday
@@ -405,7 +374,6 @@ def load_data():
                 all_week_data.append(data)
         current_date += timedelta(days=1)
     prev_week_data = pd.concat(all_week_data) if all_week_data else None
-
     first_day_prev_month = (target_date.replace(day=1) - timedelta(days=1)).replace(day=1)
     last_day_prev_month = target_date.replace(day=1) - timedelta(days=1)
     current_date = first_day_prev_month
@@ -417,27 +385,20 @@ def load_data():
                 all_month_data.append(data)
         current_date += timedelta(days=1)
     prev_month_data = pd.concat(all_month_data) if all_month_data else None
-
     result_df = calculate_breakout_stats(today_data, prev_day_data, prev_week_data, prev_month_data, symbols_data)
     loaded_data = result_df
     excel_file = save_to_excel(result_df, today_date)
-
     daily_counts = get_counts(result_df, 'DAILY_STATUS')
     weekly_counts = get_counts(result_df, 'WEEKLY_STATUS')
     monthly_counts = get_counts(result_df, 'MONTHLY_STATUS')
-
     fig_daily = create_pie_chart(daily_counts, "Daily Breakout Distribution")
     fig_weekly = create_pie_chart(weekly_counts, "Weekly Breakout Distribution")
     fig_monthly = create_pie_chart(monthly_counts, "Monthly Breakout Distribution")
-
     daily_table = pd.DataFrame.from_dict(daily_counts, orient='index').reset_index()
     weekly_table = pd.DataFrame.from_dict(weekly_counts, orient='index').reset_index()
     monthly_table = pd.DataFrame.from_dict(monthly_counts, orient='index').reset_index()
-
     styled_df = result_df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
-
     sectors = ["All"] + sorted(result_df['SECTOR'].unique().tolist())
-
     return (
         excel_file,
         styled_df,
@@ -451,51 +412,31 @@ def load_data():
     )
 
 def filter_data(filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols):
-    """Filter data based on user selections"""
     global loaded_data
-
     if loaded_data is None:
         return gr.Dataframe()
-
     df = loaded_data.copy()
-
     if filter_breakout:
         df = df[(df['DAILY_STATUS'].str.contains("▲▲")) &
                 (df['WEEKLY_STATUS'].str.contains("▲▲")) &
                 (df['MONTHLY_STATUS'].str.contains("▲▲"))]
-
     if filter_sector != "All":
         df = df[df['SECTOR'] == filter_sector]
-
     if filter_kmi != "All":
         df = df[df['KMI_COMPLIANT'] == filter_kmi]
-
     if filter_circuit_breaker != "All":
         if filter_circuit_breaker == "Upper Circuit Breaker":
             df = df[df['CIRCUIT_BREAKER_STATUS'] == "Upper Circuit Breaker"]
         elif filter_circuit_breaker == "Lower Circuit Breaker":
             df = df[df['CIRCUIT_BREAKER_STATUS'] == "Lower Circuit Breaker"]
-
     if filter_symbols:
         symbols = [symbol.strip().upper() for symbol in filter_symbols.split(',')]
         df = df[df['SYMBOL'].isin(symbols)]
-
     styled_df = df.style.map(highlight_status, subset=['DAILY_STATUS', 'WEEKLY_STATUS', 'MONTHLY_STATUS', 'CIRCUIT_BREAKER_STATUS'])
     return styled_df
 
-def is_valid_symbol(symbol, symbols_data):
-    """Check if symbol is valid and not a futures contract"""
-    try:
-        symbol = symbol.strip().upper()
-        return (symbol in symbols_data) and not any(month in symbol for month in MONTH_CODES)
-    except:
-        return False
+### Gradio Interface
 
-def is_weekend(date):
-    """Check if date is weekend (Saturday/Sunday)"""
-    return date.weekday() >= 5
-
-# Gradio Interface
 with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
     gr.Markdown("# 📈 PSX Breakout Scanner")
     gr.Markdown("Identifies breakout/breakdown signals in Pakistan Stock Exchange")
@@ -550,25 +491,21 @@ with gr.Blocks(title="PSX Breakout Scanner", theme=gr.themes.Soft()) as app:
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
-
     filter_sector.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
-
     filter_kmi.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
-
     filter_circuit_breaker.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
         outputs=dataframe
     )
-
     filter_symbols.change(
         fn=filter_data,
         inputs=[filter_breakout, filter_sector, filter_kmi, filter_circuit_breaker, filter_symbols],
